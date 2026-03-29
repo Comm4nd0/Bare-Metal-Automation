@@ -29,3 +29,6 @@ logs/
 
 # State files
 .deployment-state.json
+
+# Django
+db.sqlite3
