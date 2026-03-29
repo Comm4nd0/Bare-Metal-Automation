@@ -41,4 +41,9 @@ urlpatterns = [
         views.api_logs,
         name="api-logs",
     ),
+
+    # ── Simulation API ─────────────────────────────────────────────────────
+    path("api/simulation/start/", views.api_start_simulation, name="api-simulation-start"),
+    path("api/simulation/stop/", views.api_stop_simulation, name="api-simulation-stop"),
+    path("api/simulation/status/", views.api_simulation_status, name="api-simulation-status"),
 ]

@@ -155,6 +155,39 @@ ZTP-Forge is a zero-touch provisioning tool for bare-metal infrastructure. It au
 - Redfish client is a thin wrapper around requests — no external iLO library dependency
 - Meinberg provisioning uses the LANTIME REST API (v1)
 
+### Session 5 — Simulation Mode
+
+**Date**: 2026-03-29
+**Branch**: `claude/add-simulation-mode-b1VNQ`
+
+**What was done**:
+- Added full simulation mode to the dashboard — runs a complete deployment lifecycle without real hardware
+- Created `dashboard/simulation.py` — core simulation engine:
+  - Runs in a background thread, writes directly to Django ORM
+  - Progresses through all 13 deployment phases with realistic timing (~2 min total)
+  - Simulates 16 devices: 1 core switch (IOS), 5 dist switches (IOS-XE), 1 access switch (IOS), 1 border router (IOS), 1 firewall (ASA), 5 ESXi compute servers (3x DL325, 2x DL360), 1 Windows BUS backup server (DL380), 1 Meinberg NTP
+  - Topology: laptop → core → {dist switches, access switch, router, firewall, BUS, NTP} → {ESXi servers via access switch}
+  - Generates realistic cabling validation results (correct, wrong_port, wrong_device, missing)
+  - HPE servers walk through full state lifecycle: bios → raid → spp → os → ilo → provisioned
+  - Includes simulated warnings (SSH timeout retry, cabling issues, NTP GPS lock delay)
+  - Start/stop/status API with thread-safe controls
+- Created `management/commands/run_simulation.py` — CLI entry point (`python manage.py run_simulation`)
+- Added `ztp-forge simulate` CLI command
+- Added 3 API endpoints:
+  - `POST /api/simulation/start/` — start a simulation
+  - `POST /api/simulation/stop/` — stop running simulation
+  - `GET /api/simulation/status/` — check if simulation is running
+- Updated `no_deployment.html` — "Start Simulation" button on empty dashboard
+- Updated `base.html` — navbar indicator with pulsing dot when simulation is running, stop button
+- Updated `index.html` — auto-refresh now reloads page on phase/state changes (not just badge text), simulation badge next to phase badge
+
+**Decisions made**:
+- Background thread (not Celery/Channels) — simplest approach, existing 5s polling picks up all changes
+- Direct ORM writes from thread (not HTTP API calls) — faster, no network round-trip needed
+- 16 devices covering all platform types: Cisco IOS, IOS-XE, ASA, HPE DL325/DL360/DL380, Meinberg
+- Stop event checked every 0.5s via interruptible sleep helper
+- Double-start prevented (returns 409 Conflict)
+
 ---
 
 ## Current State of the Project
@@ -172,11 +205,11 @@ ZTP-Forge is a zero-touch provisioning tool for bare-metal infrastructure. It au
 
 ### What still needs to be built (from ROADMAP)
 
-- **Milestone 1 (Foundation/MVP)**: DHCP server wrapper, CDP collector, serial collector, device matcher, mock device simulator, unit tests
+- **Milestone 1 (Foundation/MVP)**: DHCP server wrapper, CDP collector, serial collector, device matcher, ~~mock device simulator~~, unit tests
 - **Milestone 2 (Cabling Validation)**: Intent parser, cabling diff engine, adaptation engine
 - **Milestone 3 (Network Config)**: Config renderer, Ansible dynamic inventory, playbooks, dead man's switch implementation, rollback handler
 - **Milestone 4 (Server Provisioning)**: ~~Redfish client~~, ~~iLO discovery~~, ~~firmware update~~, ~~BIOS config~~, ~~virtual media~~, PXE (partially done — virtual media boot implemented)
-- **Milestone 5 (Dashboard)**: WebSocket live updates, topology visualisation (D3.js/vis.js), deploy button, log viewer
+- **Milestone 5 (Dashboard)**: WebSocket live updates, topology visualisation (D3.js/vis.js), deploy button, log viewer, ~~simulation mode~~
 - **Milestone 6 (Hardening)**: Serial console fallback, retry logic, state persistence, multi-NIC, LLDP
 
 ### Known issues / open items
@@ -208,7 +241,7 @@ src/ztp_forge/
 ├── provisioner/
 │   ├── server.py            # HPE Redfish provisioning (BIOS/RAID/SPP/OS/iLO)
 │   └── meinberg.py          # Meinberg NTP REST API provisioning
-└── dashboard/               # Django app (models, views, API, templates)
+└── dashboard/               # Django app (models, views, API, templates, simulation)
 ```
 
 ### Deployment phases (in order)
