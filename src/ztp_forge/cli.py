@@ -94,14 +94,27 @@ def deploy(inventory: str, dry_run: bool) -> None:
 @main.command()
 @click.option("--host", default="0.0.0.0", help="Dashboard bind address.")
 @click.option("--port", default=8080, help="Dashboard port.")
-@click.option("--mock", is_flag=True, help="Run with mock devices for testing.")
+@click.option("--mock", is_flag=True, help="Populate mock devices for testing.")
 def serve(host: str, port: int, mock: bool) -> None:
-    """Start the ZTP-Forge dashboard."""
-    from ztp_forge.dashboard.app import create_app
+    """Start the ZTP-Forge dashboard (Django)."""
+    import os
+
+    os.environ.setdefault("DJANGO_SETTINGS_MODULE", "ztp_forge.dashboard.settings")
+
+    import django
+    django.setup()
+
+    from django.core.management import call_command
+
+    # Run migrations automatically
+    call_command("migrate", "--run-syncdb", verbosity=0)
+
+    if mock:
+        console.print("[dim]Loading mock deployment data...[/]")
+        call_command("load_mock_data")
 
     console.print(f"[bold blue]ZTP-Forge[/] — Dashboard at http://{host}:{port}")
-    app = create_app(mock=mock)
-    app.run(host=host, port=port, debug=True)
+    call_command("runserver", f"{host}:{port}")
 
 
 if __name__ == "__main__":

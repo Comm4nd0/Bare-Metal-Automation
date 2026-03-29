@@ -1,0 +1,119 @@
+{% extends "dashboard/base.html" %}
+{% block title %}ZTP-Forge — {{ device }}{% endblock %}
+
+{% block content %}
+<nav aria-label="breadcrumb" class="mb-3">
+    <ol class="breadcrumb">
+        <li class="breadcrumb-item"><a href="{% url 'dashboard' %}">Dashboard</a></li>
+        <li class="breadcrumb-item active">{{ device }}</li>
+    </ol>
+</nav>
+
+<div class="row mb-4">
+    <div class="col">
+        <div class="d-flex align-items-center gap-3">
+            <h3 class="mb-0">
+                <i class="bi bi-{{ device.role_icon }}"></i>
+                {{ device }}
+            </h3>
+            <span class="badge bg-{{ device.state_css_class }} fs-6">
+                {{ device.get_state_display }}
+            </span>
+        </div>
+    </div>
+</div>
+
+<!-- Device Info -->
+<div class="row g-3 mb-4">
+    <div class="col-md-6">
+        <div class="card bg-body-secondary">
+            <div class="card-header">Device Information</div>
+            <div class="card-body">
+                <table class="table table-sm table-borderless mb-0">
+                    <tr><td class="text-secondary" style="width:40%">Role</td><td>{{ device.get_role_display|default:"—" }}</td></tr>
+                    <tr><td class="text-secondary">Platform</td><td>{{ device.get_platform_display|default:"—" }}</td></tr>
+                    <tr><td class="text-secondary">Bootstrap IP</td><td>{{ device.ip }}</td></tr>
+                    <tr><td class="text-secondary">Management IP</td><td>{{ device.management_ip|default:"—" }}</td></tr>
+                    <tr><td class="text-secondary">MAC Address</td><td><code>{{ device.mac|default:"—" }}</code></td></tr>
+                    <tr><td class="text-secondary">Serial Number</td><td><code>{{ device.serial|default:"—" }}</code></td></tr>
+                    <tr><td class="text-secondary">Hostname (discovered)</td><td>{{ device.hostname|default:"—" }}</td></tr>
+                    <tr><td class="text-secondary">BFS Depth</td><td>{{ device.bfs_depth|default:"—" }}</td></tr>
+                    <tr><td class="text-secondary">Config Order</td><td>{{ device.config_order|default:"—" }}</td></tr>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Cabling Summary -->
+    <div class="col-md-6">
+        <div class="card bg-body-secondary">
+            <div class="card-header">
+                <i class="bi bi-ethernet"></i> Cabling Validation
+                <span class="badge bg-secondary ms-2">{{ cabling_results|length }} ports</span>
+            </div>
+            <div class="card-body">
+                {% if cabling_results %}
+                <div class="d-flex gap-3 mb-3 flex-wrap">
+                    {% regroup cabling_results by status as status_groups %}
+                    {% for group in status_groups %}
+                    <div>
+                        <span class="badge bg-{{ group.list.0.status_css_class }}">
+                            {{ group.list|length }}
+                        </span>
+                        <span class="small text-secondary">{{ group.grouper }}</span>
+                    </div>
+                    {% endfor %}
+                </div>
+                {% else %}
+                <p class="text-secondary mb-0">No cabling validation data yet.</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Cabling Results Table -->
+{% if cabling_results %}
+<div class="row">
+    <div class="col">
+        <div class="card bg-body-secondary">
+            <div class="card-header">Port-by-Port Cabling Results</div>
+            <div class="card-body p-0">
+                <div class="table-responsive">
+                    <table class="table table-sm table-hover mb-0">
+                        <thead>
+                            <tr>
+                                <th>Local Port</th>
+                                <th>Status</th>
+                                <th>Intended Remote</th>
+                                <th>Actual Remote</th>
+                                <th>Message</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for cr in cabling_results %}
+                            <tr>
+                                <td><code>{{ cr.local_port }}</code></td>
+                                <td><span class="badge bg-{{ cr.status_css_class }}">{{ cr.get_status_display }}</span></td>
+                                <td>
+                                    {% if cr.intended_remote %}{{ cr.intended_remote }}{% endif %}
+                                    {% if cr.intended_remote_port %} <code>{{ cr.intended_remote_port }}</code>{% endif %}
+                                    {% if not cr.intended_remote %}—{% endif %}
+                                </td>
+                                <td>
+                                    {% if cr.actual_remote %}{{ cr.actual_remote }}{% endif %}
+                                    {% if cr.actual_remote_port %} <code>{{ cr.actual_remote_port }}</code>{% endif %}
+                                    {% if not cr.actual_remote %}—{% endif %}
+                                </td>
+                                <td class="text-secondary small">{{ cr.message|default:"—" }}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
+{% endblock %}
