@@ -60,6 +60,21 @@ def configure_network(inventory: str, dry_run: bool) -> None:
     orch.run_network_config(dry_run=dry_run)
 
 
+@main.command(name="upgrade-firmware")
+@click.option(
+    "--inventory", "-i",
+    default="configs/inventory/inventory.yaml",
+    help="Path to inventory file.",
+)
+def upgrade_firmware(inventory: str) -> None:
+    """Upgrade firmware on network devices (Cisco IOS/ASA images)."""
+    from ztp_forge.orchestrator import Orchestrator
+
+    console.print("[bold blue]ZTP-Forge[/] — Firmware Upgrade")
+    orch = Orchestrator(inventory_path=inventory)
+    orch.run_firmware_upgrade()
+
+
 @main.command(name="provision-servers")
 @click.option(
     "--inventory", "-i",
@@ -67,12 +82,27 @@ def configure_network(inventory: str, dry_run: bool) -> None:
     help="Path to inventory file.",
 )
 def provision_servers(inventory: str) -> None:
-    """Provision servers via Redfish (firmware, BIOS, OS install)."""
+    """Provision HPE servers via Redfish (BIOS, RAID, SPP, OS install, iLO)."""
     from ztp_forge.orchestrator import Orchestrator
 
     console.print("[bold blue]ZTP-Forge[/] — Server Provisioning")
     orch = Orchestrator(inventory_path=inventory)
     orch.run_server_provisioning()
+
+
+@main.command(name="provision-ntp")
+@click.option(
+    "--inventory", "-i",
+    default="configs/inventory/inventory.yaml",
+    help="Path to inventory file.",
+)
+def provision_ntp(inventory: str) -> None:
+    """Provision Meinberg NTP devices (OS install and configuration)."""
+    from ztp_forge.orchestrator import Orchestrator
+
+    console.print("[bold blue]ZTP-Forge[/] — NTP Provisioning")
+    orch = Orchestrator(inventory_path=inventory)
+    orch.run_ntp_provisioning()
 
 
 @main.command()

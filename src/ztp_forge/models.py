@@ -13,6 +13,9 @@ class DevicePlatform(str, Enum):
     CISCO_ASA = "cisco_asa"
     CISCO_FTD = "cisco_ftd"
     HPE_DL325_GEN10 = "hpe_dl325_gen10"
+    HPE_DL360_GEN10 = "hpe_dl360_gen10"
+    HPE_DL380_GEN10 = "hpe_dl380_gen10"
+    MEINBERG_LANTIME = "meinberg_lantime"
 
 
 class DeviceRole(str, Enum):
@@ -23,6 +26,7 @@ class DeviceRole(str, Enum):
     PERIMETER_FIREWALL = "perimeter-firewall"
     COMPUTE_NODE = "compute-node"
     MANAGEMENT_SERVER = "management-server"
+    NTP_SERVER = "ntp-server"
 
 
 class DeviceState(str, Enum):
@@ -30,8 +34,20 @@ class DeviceState(str, Enum):
     DISCOVERED = "discovered"
     IDENTIFIED = "identified"
     VALIDATED = "validated"
+    FIRMWARE_UPGRADING = "firmware_upgrading"
+    FIRMWARE_UPGRADED = "firmware_upgraded"
     CONFIGURING = "configuring"
     CONFIGURED = "configured"
+    BIOS_CONFIGURING = "bios_configuring"
+    BIOS_CONFIGURED = "bios_configured"
+    RAID_CONFIGURING = "raid_configuring"
+    RAID_CONFIGURED = "raid_configured"
+    SPP_INSTALLING = "spp_installing"
+    SPP_INSTALLED = "spp_installed"
+    OS_INSTALLING = "os_installing"
+    OS_INSTALLED = "os_installed"
+    ILO_CONFIGURING = "ilo_configuring"
+    ILO_CONFIGURED = "ilo_configured"
     PROVISIONING = "provisioning"
     PROVISIONED = "provisioned"
     FAILED = "failed"
@@ -42,10 +58,12 @@ class DeploymentPhase(str, Enum):
     DISCOVERY = "discovery"
     TOPOLOGY = "topology"
     CABLING_VALIDATION = "cabling_validation"
+    FIRMWARE_UPGRADE = "firmware_upgrade"
     HEAVY_TRANSFERS = "heavy_transfers"
     NETWORK_CONFIG = "network_config"
     LAPTOP_PIVOT = "laptop_pivot"
     SERVER_PROVISION = "server_provision"
+    NTP_PROVISION = "ntp_provision"
     POST_INSTALL = "post_install"
     FINAL_VALIDATION = "final_validation"
     COMPLETE = "complete"

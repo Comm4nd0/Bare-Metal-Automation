@@ -17,8 +17,23 @@ class DeviceSpec(BaseModel):
     hostname: str
     template: str
     platform: str
+    # Network device firmware fields
+    firmware_image: str | None = None
+    firmware_version: str | None = None
+    firmware_md5: str | None = None
+    # HPE server fields
     ilo_firmware: str | None = None
     os_iso: str | None = None
+    kickstart_iso: str | None = None
+    spp_iso: str | None = None
+    bios_settings: dict | None = None
+    raid_config: dict | None = None
+    ilo_config: dict | None = None
+    # Meinberg NTP fields
+    ntp_references: dict | None = None
+    ntp_config: dict | None = None
+    system_config: dict | None = None
+    network_config: dict | None = None
 
 
 class InventorySchema(BaseModel):

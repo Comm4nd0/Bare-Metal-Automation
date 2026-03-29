@@ -8,7 +8,10 @@ deployment:
   management_vlan: 100
 
 devices:
-  # Cisco Switches
+  # ============================================================
+  # Cisco Network Devices — firmware upgrade + configuration
+  # ============================================================
+
   FOC2145X0AB:
     role: core-switch
     hostname: sw-core-01
@@ -16,6 +19,9 @@ devices:
     platform: cisco_ios
     management_ip: "192.168.100.1"
     management_subnet: "255.255.255.0"
+    firmware_image: "c3850-universalk9-mz.SPA.16.12.08.bin"
+    firmware_version: "16.12.8"
+    firmware_md5: "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4"
 
   FOC2145X0CD:
     role: access-switch
@@ -24,6 +30,8 @@ devices:
     platform: cisco_ios
     management_ip: "192.168.100.2"
     management_subnet: "255.255.255.0"
+    firmware_image: "c3850-universalk9-mz.SPA.16.12.08.bin"
+    firmware_version: "16.12.8"
 
   FOC2145X0EF:
     role: access-switch
@@ -32,6 +40,8 @@ devices:
     platform: cisco_ios
     management_ip: "192.168.100.3"
     management_subnet: "255.255.255.0"
+    firmware_image: "c3850-universalk9-mz.SPA.16.12.08.bin"
+    firmware_version: "16.12.8"
 
   # Cisco Router
   JAD1234567:
@@ -41,6 +51,8 @@ devices:
     platform: cisco_ios
     management_ip: "192.168.100.10"
     management_subnet: "255.255.255.0"
+    firmware_image: "isr4400-universalk9.17.06.05.SPA.bin"
+    firmware_version: "17.6.5"
 
   # Cisco Firewall
   JMX0987654:
@@ -50,34 +62,169 @@ devices:
     platform: cisco_asa
     management_ip: "192.168.100.20"
     management_subnet: "255.255.255.0"
+    firmware_image: "asa9-18-2-lfbff-k8.SPA"
+    firmware_version: "9.18(2)"
 
-  # HPE Servers
+  # ============================================================
+  # HPE Servers — BIOS, RAID, SPP, OS install, iLO config
+  # ============================================================
+
   CZ12345678:
     role: compute-node
     hostname: svr-compute-01
     template: servers/compute.j2
     platform: hpe_dl325_gen10
-    ilo_firmware: "ilo5_280.bin"
-    os_iso: "rhel-9.3-x86_64.iso"
     management_ip: "192.168.100.101"
     management_subnet: "255.255.255.0"
+    ilo_firmware: "ilo5_280.bin"
+    spp_iso: "SPP-2024.03.0.iso"
+    os_iso: "rhel-9.3-x86_64.iso"
+    kickstart_iso: "ks-compute.iso"
+    bios_settings:
+      BootMode: "Uefi"
+      WorkloadProfile: "Virtualization-MaxPerformance"
+      IntelHyperthreading: "Enabled"
+      EnergyPerfBias: "MaxPerf"
+      SriovGlobalEnable: "Enabled"
+      ThermalConfig: "IncreasedCooling"
+    raid_config:
+      clear_existing: true
+      logical_drives:
+        - name: "OS-Mirror"
+          raid_level: "Raid1"
+          drives: ["1I:1:1", "1I:1:2"]
+          accelerator: "ControllerCache"
+        - name: "Data-RAID5"
+          raid_level: "Raid5"
+          drives: ["1I:1:3", "1I:1:4", "1I:1:5", "1I:1:6"]
+          spare_drives: ["1I:1:7"]
+          strip_size_kb: 256
+    ilo_config:
+      hostname: "ilo-svr-compute-01"
+      network:
+        ipv4:
+          address: "192.168.100.201"
+          subnet_mask: "255.255.255.0"
+          gateway: "192.168.100.254"
+        dns_servers: ["192.168.100.10"]
+        vlan_id: 100
+      users:
+        - username: "ztpadmin"
+          password: "ChangeMeOnFirstLogin!"
+          ilo_config: true
+          user_config: true
+      remove_default_admin: false
+      ntp:
+        servers: ["192.168.100.50"]
+        propagate_to_host: true
+      snmp:
+        community: "ztp-monitoring"
+        trap_destinations: ["192.168.100.10"]
+        system_contact: "datacenter-ops@example.com"
+        system_location: "DC1-Rack42-U10"
 
   CZ12345679:
     role: compute-node
     hostname: svr-compute-02
     template: servers/compute.j2
     platform: hpe_dl325_gen10
-    ilo_firmware: "ilo5_280.bin"
-    os_iso: "rhel-9.3-x86_64.iso"
     management_ip: "192.168.100.102"
     management_subnet: "255.255.255.0"
+    ilo_firmware: "ilo5_280.bin"
+    spp_iso: "SPP-2024.03.0.iso"
+    os_iso: "rhel-9.3-x86_64.iso"
+    kickstart_iso: "ks-compute.iso"
+    bios_settings:
+      BootMode: "Uefi"
+      WorkloadProfile: "Virtualization-MaxPerformance"
+    raid_config:
+      clear_existing: true
+      logical_drives:
+        - name: "OS-Mirror"
+          raid_level: "Raid1"
+          drives: ["1I:1:1", "1I:1:2"]
+    ilo_config:
+      hostname: "ilo-svr-compute-02"
+      network:
+        ipv4:
+          address: "192.168.100.202"
+          subnet_mask: "255.255.255.0"
+          gateway: "192.168.100.254"
 
   CZ12345680:
     role: management-server
     hostname: svr-mgmt-01
     template: servers/management.j2
     platform: hpe_dl325_gen10
-    ilo_firmware: "ilo5_280.bin"
-    os_iso: "rhel-9.3-x86_64.iso"
     management_ip: "192.168.100.100"
     management_subnet: "255.255.255.0"
+    ilo_firmware: "ilo5_280.bin"
+    spp_iso: "SPP-2024.03.0.iso"
+    os_iso: "rhel-9.3-x86_64.iso"
+    kickstart_iso: "ks-mgmt.iso"
+    bios_settings:
+      BootMode: "Uefi"
+      WorkloadProfile: "GeneralPowerEfficientCompute"
+    raid_config:
+      clear_existing: true
+      logical_drives:
+        - name: "OS-Mirror"
+          raid_level: "Raid1"
+          drives: ["1I:1:1", "1I:1:2"]
+
+  # ============================================================
+  # Meinberg NTP — OS install and configuration
+  # ============================================================
+
+  MBG20231234:
+    role: ntp-server
+    hostname: ntp-primary-01
+    template: ntp/meinberg.j2
+    platform: meinberg_lantime
+    management_ip: "192.168.100.50"
+    management_subnet: "255.255.255.0"
+    firmware_image: "lantime-firmware-7.08.004.tar.gz"
+    network_config:
+      hostname: "ntp-primary-01"
+      ipv4:
+        mode: "static"
+        address: "192.168.100.50"
+        netmask: "255.255.255.0"
+        gateway: "192.168.100.254"
+      dns_servers: ["192.168.100.10"]
+      vlan_id: 100
+    ntp_references:
+      gps:
+        enabled: true
+        cable_delay_ns: 50
+        survey_mode: "auto"
+        elevation_mask: 10
+      ptp:
+        enabled: false
+    ntp_config:
+      enabled: true
+      local_stratum: 1
+      access_control:
+        - network: "192.168.100.0"
+          mask: "255.255.255.0"
+          flags: ["nomodify", "notrap"]
+        - network: "10.0.0.0"
+          mask: "255.0.0.0"
+          flags: ["nomodify", "notrap", "nopeer"]
+    system_config:
+      timezone: "UTC"
+      syslog:
+        servers:
+          - address: "192.168.100.10"
+            port: 514
+        facility: "local0"
+      snmp:
+        enabled: true
+        community: "ztp-monitoring"
+        trap_receivers: ["192.168.100.10"]
+        system_contact: "datacenter-ops@example.com"
+        system_location: "DC1-Rack42-U1"
+    users:
+      - username: "ztpadmin"
+        password: "ChangeMeOnFirstLogin!"
+        role: "admin"

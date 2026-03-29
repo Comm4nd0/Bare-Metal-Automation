@@ -110,6 +110,51 @@ ZTP-Forge is a zero-touch provisioning tool for bare-metal infrastructure. It au
 **What was done**:
 - Created this document (`docs/CONVERSATION_HISTORY.md`) to track project history across AI sessions
 
+### Session 4 — Device Firmware, OS & Provisioning
+
+**Date**: 2026-03-29
+**Branch**: `claude/configure-device-firmware-os-MN9dJ`
+
+**What was done**:
+- Created `configurator/firmware.py` — Cisco network device firmware upgrade via SCP (version check, transfer, MD5 verify, boot var, reload, post-verify)
+- Created `provisioner/server.py` — HPE server provisioning via Redfish/iLO 5:
+  - iLO firmware update
+  - BIOS configuration (diff-based, only applies changes)
+  - RAID/Smart Storage configuration (logical drive creation, clear existing)
+  - HPE SPP installation via virtual media
+  - OS installation via virtual media (with kickstart support)
+  - iLO production config (networking, users, SNMP, NTP)
+- Created `provisioner/meinberg.py` — Meinberg LANTIME NTP provisioning:
+  - Firmware/OS upload and install
+  - Network configuration (static IP, VLAN, DNS)
+  - NTP reference sources (GPS, PTP, external NTP)
+  - NTP service config (access control, stratum, authentication)
+  - System settings (timezone, syslog, SNMP)
+  - User account management
+- Created `common/parallel.py` — parallel execution engine:
+  - Groups devices by BFS depth for outside-in parallel processing
+  - Network devices at same depth run concurrently (safe — no dependency)
+  - Stops on failure to prevent configuring closer devices when further ones fail
+  - Independent devices (servers, NTP) all run fully in parallel
+- Updated `models.py`:
+  - Added platforms: HPE DL360/DL380 Gen10, Meinberg LANTIME
+  - Added role: ntp-server
+  - Added granular device states: firmware_upgrading/upgraded, bios_configuring/configured, raid_configuring/configured, spp_installing/installed, os_installing/installed, ilo_configuring/configured
+  - Added deployment phases: firmware_upgrade, ntp_provision
+- Updated `inventory.py` — expanded DeviceSpec with firmware, BIOS, RAID, SPP, iLO, NTP fields
+- Updated `dashboard/models.py` — all new platform/role/state/phase choices with CSS classes and icons
+- Updated `orchestrator.py` — wired in all new phases with parallel execution
+- Updated `cli.py` — added `upgrade-firmware` and `provision-ntp` commands
+- Updated `inventory.example.yaml` — comprehensive examples for all device types with full config
+- Created Django migration `0002_alter_deployment_phase_alter_device_platform_and_more.py`
+
+**Decisions made**:
+- Parallel execution uses ThreadPoolExecutor grouped by BFS depth — devices at the same depth can safely run concurrently since they don't sit on each other's management paths
+- Network device firmware and config respect outside-in ordering (stop on failure at any depth)
+- Server and NTP provisioning run fully parallel (independent devices, accessed via iLO / management API)
+- Redfish client is a thin wrapper around requests — no external iLO library dependency
+- Meinberg provisioning uses the LANTIME REST API (v1)
+
 ---
 
 ## Current State of the Project
@@ -120,22 +165,25 @@ ZTP-Forge is a zero-touch provisioning tool for bare-metal infrastructure. It au
 - Django dashboard with models, views, templates, and API
 - Example inventory and core switch config template
 - Development tooling config (ruff, mypy, pytest)
+- Network device firmware upgrade (SCP + reload + verify)
+- HPE server provisioning (BIOS, RAID, SPP, OS, iLO via Redfish)
+- Meinberg NTP provisioning (firmware, network, NTP config, system settings)
+- Parallel execution engine respecting BFS depth constraints
 
 ### What still needs to be built (from ROADMAP)
 
 - **Milestone 1 (Foundation/MVP)**: DHCP server wrapper, CDP collector, serial collector, device matcher, mock device simulator, unit tests
 - **Milestone 2 (Cabling Validation)**: Intent parser, cabling diff engine, adaptation engine
 - **Milestone 3 (Network Config)**: Config renderer, Ansible dynamic inventory, playbooks, dead man's switch implementation, rollback handler
-- **Milestone 4 (Server Provisioning)**: Redfish client, iLO discovery, firmware update, BIOS config, virtual media, PXE
+- **Milestone 4 (Server Provisioning)**: ~~Redfish client~~, ~~iLO discovery~~, ~~firmware update~~, ~~BIOS config~~, ~~virtual media~~, PXE (partially done — virtual media boot implemented)
 - **Milestone 5 (Dashboard)**: WebSocket live updates, topology visualisation (D3.js/vis.js), deploy button, log viewer
 - **Milestone 6 (Hardening)**: Serial console fallback, retry logic, state persistence, multi-NIC, LLDP
 
 ### Known issues / open items
 
-- No open GitHub issues
-- No open pull requests
-- All roadmap tasks are still unchecked
 - The `dashboard/` was changed from Flask to Django but the README architecture diagram still references "Flask + WebSocket" — may want to update this
+- No unit tests for the new provisioning modules yet
+- Meinberg API paths are based on the LANTIME REST API spec — may need adjustment for specific firmware versions
 
 ---
 
@@ -144,31 +192,40 @@ ZTP-Forge is a zero-touch provisioning tool for bare-metal infrastructure. It au
 ### Source layout
 ```
 src/ztp_forge/
-├── __init__.py          # Version string
-├── cli.py               # Click CLI (discover, validate, configure, provision, serve)
-├── models.py            # Pydantic models (DeviceInfo, TopologyNode, CablingReport, etc.)
-├── inventory.py         # YAML inventory loader + validator
-├── orchestrator.py      # Phase-based state machine
-├── common/              # Shared utilities (stub)
-├── discovery/engine.py  # DHCP + CDP + SNMP discovery
-├── topology/builder.py  # NetworkX graph + BFS
-├── cabling/validator.py # CDP vs intent diff
-├── configurator/network.py  # Ansible runner + dead man's switch
-├── provisioner/         # Redfish/iLO (stub)
-└── dashboard/           # Django app (models, views, API, templates)
+├── __init__.py              # Version string
+├── cli.py                   # Click CLI (discover, validate, configure, provision, serve)
+├── models.py                # Dataclass models + enums
+├── inventory.py             # YAML inventory loader + validator
+├── orchestrator.py          # Phase-based state machine with parallel execution
+├── common/
+│   └── parallel.py          # ThreadPoolExecutor grouped by BFS depth
+├── discovery/engine.py      # DHCP + CDP + SNMP discovery
+├── topology/builder.py      # NetworkX graph + BFS
+├── cabling/validator.py     # CDP vs intent diff
+├── configurator/
+│   ├── network.py           # SSH config push with dead man's switch
+│   └── firmware.py          # SCP firmware upgrade + verify
+├── provisioner/
+│   ├── server.py            # HPE Redfish provisioning (BIOS/RAID/SPP/OS/iLO)
+│   └── meinberg.py          # Meinberg NTP REST API provisioning
+└── dashboard/               # Django app (models, views, API, templates)
 ```
 
 ### Deployment phases (in order)
 0. Pre-flight — validate inventory, check firmware, verify NIC
 1. Discovery — DHCP leases, SSH, CDP, serial matching
 2. Topology & Cabling — build graph, BFS, validate against intent
-3. Heavy Transfers — firmware/ISO push while network is flat L2
-4. Network Config — outside-in config push with dead man's switch
-5. Laptop Pivot — reconfigure laptop NIC to production VLAN
-6. Server Post-Install — OS hardening, packages, domain join
-7. Final Validation — end-to-end tests, health checks, report
+3. Firmware Upgrade — network device IOS/ASA images (parallel by depth)
+4. Heavy Transfers — firmware/ISO push while network is flat L2
+5. Network Config — outside-in config push with dead man's switch (parallel by depth)
+6. Laptop Pivot — reconfigure laptop NIC to production VLAN
+7. Server Provisioning — HPE BIOS/RAID/SPP/OS/iLO via Redfish (fully parallel)
+8. NTP Provisioning — Meinberg firmware/config via REST API (fully parallel)
+9. Post-Install — OS hardening, packages, domain join
+10. Final Validation — end-to-end tests, health checks, report
 
 ### Supported hardware
-- Cisco IOS/IOS-XE switches and routers (SSH + CDP + Ansible)
-- Cisco ASA / Firepower firewalls (SSH + Ansible)
-- HPE DL325 Gen10 servers (iLO 5 Redfish API)
+- Cisco IOS/IOS-XE switches and routers (SSH + CDP + Netmiko)
+- Cisco ASA / Firepower firewalls (SSH + Netmiko)
+- HPE DL325/DL360/DL380 Gen10 servers (iLO 5 Redfish API)
+- Meinberg LANTIME NTP appliances (REST API)
