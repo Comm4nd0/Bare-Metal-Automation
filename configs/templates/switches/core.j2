@@ -1,0 +1,78 @@
+!
+! ZTP-Forge generated config for {{ hostname }}
+! Role: Core Switch
+! Serial: {{ serial }}
+!
+hostname {{ hostname }}
+!
+! Management
+vlan {{ management_vlan }}
+  name MANAGEMENT
+!
+interface Vlan{{ management_vlan }}
+  description Management Interface
+  ip address {{ management_ip }} {{ management_subnet }}
+  no shutdown
+!
+! Spanning Tree — core switch is root
+spanning-tree mode rapid-pvst
+spanning-tree vlan 1-4094 priority 4096
+!
+! Uplinks to other switches — trunk all VLANs
+interface GigabitEthernet1/0/47
+  description Uplink to sw-access-02
+  switchport mode trunk
+  switchport trunk allowed vlan all
+  no shutdown
+!
+interface GigabitEthernet1/0/48
+  description Uplink to sw-access-01
+  switchport mode trunk
+  switchport trunk allowed vlan all
+  no shutdown
+!
+! Router uplink
+interface GigabitEthernet1/0/24
+  description Uplink to rtr-border-01
+  switchport mode trunk
+  switchport trunk allowed vlan all
+  no shutdown
+!
+! Server access ports
+{% for i in range(1, 13) %}
+interface GigabitEthernet1/0/{{ i }}
+  description Server port {{ i }}
+  switchport mode access
+  switchport access vlan 10
+  spanning-tree portfast
+  no shutdown
+!
+{% endfor %}
+! Security
+no ip http server
+no ip http secure-server
+service password-encryption
+!
+! Disable unused ports
+{% for i in range(13, 24) %}
+interface GigabitEthernet1/0/{{ i }}
+  shutdown
+!
+{% endfor %}
+{% for i in range(25, 47) %}
+interface GigabitEthernet1/0/{{ i }}
+  shutdown
+!
+{% endfor %}
+!
+! Logging and management access
+logging buffered 16384
+no logging console
+!
+line con 0
+  logging synchronous
+line vty 0 15
+  transport input ssh
+  login local
+!
+end

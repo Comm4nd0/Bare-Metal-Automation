@@ -1,0 +1,83 @@
+# ZTP-Forge Example Inventory
+# Copy this to inventory.yaml and edit with your actual device serials and roles.
+
+deployment:
+  name: "DC-Rack-42"
+  bootstrap_subnet: "10.255.0.0/16"
+  laptop_ip: "10.255.255.1"
+  management_vlan: 100
+
+devices:
+  # Cisco Switches
+  FOC2145X0AB:
+    role: core-switch
+    hostname: sw-core-01
+    template: switches/core.j2
+    platform: cisco_ios
+    management_ip: "192.168.100.1"
+    management_subnet: "255.255.255.0"
+
+  FOC2145X0CD:
+    role: access-switch
+    hostname: sw-access-01
+    template: switches/access.j2
+    platform: cisco_ios
+    management_ip: "192.168.100.2"
+    management_subnet: "255.255.255.0"
+
+  FOC2145X0EF:
+    role: access-switch
+    hostname: sw-access-02
+    template: switches/access.j2
+    platform: cisco_ios
+    management_ip: "192.168.100.3"
+    management_subnet: "255.255.255.0"
+
+  # Cisco Router
+  JAD1234567:
+    role: border-router
+    hostname: rtr-border-01
+    template: routers/border.j2
+    platform: cisco_ios
+    management_ip: "192.168.100.10"
+    management_subnet: "255.255.255.0"
+
+  # Cisco Firewall
+  JMX0987654:
+    role: perimeter-firewall
+    hostname: fw-perim-01
+    template: firewalls/perimeter.j2
+    platform: cisco_asa
+    management_ip: "192.168.100.20"
+    management_subnet: "255.255.255.0"
+
+  # HPE Servers
+  CZ12345678:
+    role: compute-node
+    hostname: svr-compute-01
+    template: servers/compute.j2
+    platform: hpe_dl325_gen10
+    ilo_firmware: "ilo5_280.bin"
+    os_iso: "rhel-9.3-x86_64.iso"
+    management_ip: "192.168.100.101"
+    management_subnet: "255.255.255.0"
+
+  CZ12345679:
+    role: compute-node
+    hostname: svr-compute-02
+    template: servers/compute.j2
+    platform: hpe_dl325_gen10
+    ilo_firmware: "ilo5_280.bin"
+    os_iso: "rhel-9.3-x86_64.iso"
+    management_ip: "192.168.100.102"
+    management_subnet: "255.255.255.0"
+
+  CZ12345680:
+    role: management-server
+    hostname: svr-mgmt-01
+    template: servers/management.j2
+    platform: hpe_dl325_gen10
+    ilo_firmware: "ilo5_280.bin"
+    os_iso: "rhel-9.3-x86_64.iso"
+    management_ip: "192.168.100.100"
+    management_subnet: "255.255.255.0"
