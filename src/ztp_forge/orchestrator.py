@@ -7,7 +7,13 @@ from pathlib import Path
 
 from rich.console import Console
 
-from ztp_forge.models import DeploymentInventory, DeploymentPhase, DeploymentState
+from ztp_forge.models import (
+    DeploymentInventory,
+    DeploymentPhase,
+    DeploymentState,
+    DeviceState,
+    DiscoveredDevice,
+)
 
 logger = logging.getLogger(__name__)
 console = Console()
@@ -124,62 +130,302 @@ class Orchestrator:
         validator.print_report(self.state.cabling_results)
         return self.state
 
+    def _get_network_devices(self) -> list[DiscoveredDevice]:
+        """Return discovered Cisco network devices in topology order."""
+        devices = []
+        for serial in self.state.topology_order:
+            device = next(
+                (d for d in self.state.discovered_devices.values()
+                 if d.serial == serial),
+                None,
+            )
+            if device is None:
+                continue
+            spec = self.inventory.get_device_spec(serial) or {}
+            platform = spec.get("platform", "")
+            if platform.startswith("cisco"):
+                devices.append(device)
+        return devices
+
+    def _get_devices_by_platform_prefix(
+        self, prefix: str
+    ) -> list[DiscoveredDevice]:
+        """Return discovered devices whose platform starts with prefix."""
+        devices = []
+        for serial, spec in self.inventory.devices.items():
+            if not spec.get("platform", "").startswith(prefix):
+                continue
+            device = next(
+                (d for d in self.state.discovered_devices.values()
+                 if d.serial == serial),
+                None,
+            )
+            if device is not None:
+                devices.append(device)
+            else:
+                hostname = spec.get("hostname", serial)
+                console.print(
+                    f"  [yellow]Skipping {hostname} — "
+                    f"not discovered[/]"
+                )
+        return devices
+
+    def _get_devices_by_platform(
+        self, platform_value: str
+    ) -> list[DiscoveredDevice]:
+        """Return discovered devices with an exact platform match."""
+        devices = []
+        for serial, spec in self.inventory.devices.items():
+            if spec.get("platform") != platform_value:
+                continue
+            device = next(
+                (d for d in self.state.discovered_devices.values()
+                 if d.serial == serial),
+                None,
+            )
+            if device is not None:
+                devices.append(device)
+            else:
+                hostname = spec.get("hostname", serial)
+                console.print(
+                    f"  [yellow]Skipping {hostname} — "
+                    f"not discovered[/]"
+                )
+        return devices
+
     def run_network_config(self, dry_run: bool = False) -> DeploymentState:
-        """Phase 4: Configure network devices in outside-in order."""
+        """Configure network devices in outside-in order.
+
+        Devices at the same BFS depth are configured in parallel.
+        Each depth group must finish before the next (closer) group
+        starts, preserving the outside-in safety constraint.
+        """
         if not self.state.topology_order:
             self.run_discovery()
             self.run_topology()
             self.run_validation()
 
         if self.state.has_blocking_errors:
-            console.print("[bold red]Cannot proceed — blocking errors exist.[/]")
+            console.print(
+                "[bold red]Cannot proceed — blocking errors exist.[/]"
+            )
             return self.state
 
+        from ztp_forge.common.parallel import run_parallel_by_depth
         from ztp_forge.configurator.network import NetworkConfigurator
 
-        console.print("\n[bold]Phase 4 — Network Configuration[/]")
+        console.print("\n[bold]Network Configuration (parallel by depth)[/]")
 
         configurator = NetworkConfigurator(
             inventory=self.inventory,
             ssh_timeout=self.ssh_timeout,
         )
 
-        for serial in self.state.topology_order:
-            device = next(
-                d for d in self.state.discovered_devices.values() if d.serial == serial
-            )
-            console.print(
-                f"\n  Configuring {device.intended_hostname} "
-                f"(depth {device.bfs_depth})..."
-            )
+        network_devices = self._get_network_devices()
 
-            if dry_run:
-                console.print("    [yellow]DRY RUN — skipping[/]")
-                continue
+        if dry_run:
+            for d in network_devices:
+                console.print(
+                    f"  [yellow]DRY RUN — would configure "
+                    f"{d.intended_hostname} (depth {d.bfs_depth})[/]"
+                )
+            return self.state
 
-            success = configurator.configure_device(device)
-            if success:
-                device.state = "configured"
-                console.print(f"    [green]✓ Configured and validated[/]")
-            else:
-                device.state = "failed"
-                console.print(f"    [red]✗ Configuration failed — rollback triggered[/]")
-                self.state.errors.append(f"Failed to configure {device.intended_hostname}")
-                break  # Stop — don't configure devices closer to laptop if a further one failed
+        results = run_parallel_by_depth(
+            devices=network_devices,
+            operation=configurator.configure_device,
+            max_workers=4,
+            stop_on_failure=True,
+        )
+
+        for device in network_devices:
+            key = device.serial or device.ip
+            if results.get(key):
+                device.state = DeviceState.CONFIGURED
+                console.print(
+                    f"  [green]✓ {device.intended_hostname} configured[/]"
+                )
+            elif key in results:
+                device.state = DeviceState.FAILED
+                console.print(
+                    f"  [red]✗ {device.intended_hostname} failed[/]"
+                )
+                self.state.errors.append(
+                    f"Failed to configure {device.intended_hostname}"
+                )
+
+        return self.state
+
+    def run_firmware_upgrade(self) -> DeploymentState:
+        """Upgrade firmware on network devices.
+
+        Devices at the same BFS depth are upgraded in parallel.
+        Stops if any device at a given depth fails — we don't want
+        to upgrade closer devices when a further one is in a bad state.
+        """
+        if not self.inventory:
+            self.inventory = self._load_inventory()
+
+        if not self.state.discovered_devices:
+            self.run_discovery()
+            self.run_topology()
+
+        from ztp_forge.common.parallel import run_parallel_by_depth
+        from ztp_forge.configurator.firmware import FirmwareConfigurator
+
+        console.print(
+            "\n[bold]Firmware Upgrade (parallel by depth)[/]"
+        )
+        self.state.phase = DeploymentPhase.FIRMWARE_UPGRADE
+
+        configurator = FirmwareConfigurator(inventory=self.inventory)
+
+        # Filter to Cisco devices that have firmware specified
+        fw_devices = []
+        for device in self._get_network_devices():
+            spec = self.inventory.get_device_spec(device.serial) or {}
+            if spec.get("firmware_image"):
+                fw_devices.append(device)
+
+        if not fw_devices:
+            console.print("  No firmware upgrades needed")
+            return self.state
+
+        results = run_parallel_by_depth(
+            devices=fw_devices,
+            operation=configurator.upgrade_device,
+            max_workers=4,
+            stop_on_failure=True,
+        )
+
+        for device in fw_devices:
+            key = device.serial or device.ip
+            if results.get(key):
+                console.print(
+                    f"  [green]✓ {device.intended_hostname} "
+                    f"firmware upgraded[/]"
+                )
+            elif key in results:
+                console.print(
+                    f"  [red]✗ {device.intended_hostname} "
+                    f"firmware upgrade failed[/]"
+                )
+                self.state.errors.append(
+                    f"Firmware upgrade failed for "
+                    f"{device.intended_hostname}"
+                )
 
         return self.state
 
     def run_server_provisioning(self) -> DeploymentState:
-        """Phase 5-6: Provision servers via Redfish."""
-        console.print("\n[bold]Phase 5 — Server Provisioning[/]")
-        # TODO: Implement Redfish provisioning
-        console.print("  [yellow]Not yet implemented[/]")
+        """Provision HPE servers via Redfish (BIOS, RAID, SPP, OS, iLO).
+
+        All servers are provisioned in parallel — they are independent
+        devices accessed via iLO and don't sit on each other's paths.
+        """
+        if not self.inventory:
+            self.inventory = self._load_inventory()
+
+        from ztp_forge.common.parallel import run_independent_parallel
+        from ztp_forge.provisioner.server import HPEServerProvisioner
+
+        console.print(
+            "\n[bold]Server Provisioning (parallel)[/]"
+        )
+        self.state.phase = DeploymentPhase.SERVER_PROVISION
+
+        provisioner = HPEServerProvisioner(inventory=self.inventory)
+        servers = self._get_devices_by_platform_prefix("hpe_")
+
+        if not servers:
+            console.print("  No HPE servers to provision")
+            return self.state
+
+        for device in servers:
+            device.state = DeviceState.PROVISIONING
+
+        results = run_independent_parallel(
+            devices=servers,
+            operation=provisioner.provision_server,
+            max_workers=len(servers),
+        )
+
+        for device in servers:
+            key = device.serial or device.ip
+            if results.get(key):
+                console.print(
+                    f"  [green]✓ {device.intended_hostname} "
+                    f"provisioned[/]"
+                )
+            else:
+                console.print(
+                    f"  [red]✗ {device.intended_hostname} "
+                    f"provisioning failed[/]"
+                )
+                self.state.errors.append(
+                    f"Server provisioning failed for "
+                    f"{device.intended_hostname}"
+                )
+
+        return self.state
+
+    def run_ntp_provisioning(self) -> DeploymentState:
+        """Provision Meinberg NTP devices.
+
+        All NTP devices run in parallel — they are independent
+        appliances with their own management interfaces.
+        """
+        if not self.inventory:
+            self.inventory = self._load_inventory()
+
+        from ztp_forge.common.parallel import run_independent_parallel
+        from ztp_forge.provisioner.meinberg import MeinbergProvisioner
+
+        console.print(
+            "\n[bold]NTP Provisioning (parallel)[/]"
+        )
+        self.state.phase = DeploymentPhase.NTP_PROVISION
+
+        provisioner = MeinbergProvisioner(inventory=self.inventory)
+        ntp_devices = self._get_devices_by_platform("meinberg_lantime")
+
+        if not ntp_devices:
+            console.print("  No Meinberg NTP devices to provision")
+            return self.state
+
+        for device in ntp_devices:
+            device.state = DeviceState.PROVISIONING
+
+        results = run_independent_parallel(
+            devices=ntp_devices,
+            operation=provisioner.provision_device,
+            max_workers=len(ntp_devices),
+        )
+
+        for device in ntp_devices:
+            key = device.serial or device.ip
+            if results.get(key):
+                console.print(
+                    f"  [green]✓ {device.intended_hostname} "
+                    f"provisioned[/]"
+                )
+            else:
+                console.print(
+                    f"  [red]✗ {device.intended_hostname} "
+                    f"provisioning failed[/]"
+                )
+                self.state.errors.append(
+                    f"NTP provisioning failed for "
+                    f"{device.intended_hostname}"
+                )
+
         return self.state
 
     def run_full_deployment(self, dry_run: bool = False) -> DeploymentState:
         """Execute all phases in sequence."""
         self.inventory = self._load_inventory()
 
+        # Phase 1: Discovery
         self.run_discovery()
         self.run_topology()
         self.run_validation()
@@ -192,24 +438,42 @@ class Orchestrator:
             console.print("\n[bold yellow]DRY RUN — stopping before configuration.[/]")
             return self.state
 
-        # Phase 3: Heavy transfers (ISOs, firmware) while network is still dumb
-        console.print("\n[bold]Phase 3 — Heavy Transfers[/]")
-        self.run_server_provisioning()  # Kicks off ISO mounts
+        # Phase 2: Firmware upgrade on network devices (before config)
+        self.run_firmware_upgrade()
+        if self.state.has_blocking_errors:
+            console.print("\n[bold red]Deployment blocked by firmware errors.[/]")
+            return self.state
 
-        # Phase 4: Network configuration
+        # Phase 3: Heavy transfers (ISOs, firmware) while network is still flat L2
+        console.print("\n[bold]Phase 3 — Heavy Transfers[/]")
+        self.state.phase = DeploymentPhase.HEAVY_TRANSFERS
+
+        # Phase 4: Network configuration (outside-in with dead man's switch)
         self.run_network_config()
+        if self.state.has_blocking_errors:
+            console.print("\n[bold red]Deployment blocked by network config errors.[/]")
+            return self.state
 
         # Phase 5: Laptop pivot
         console.print("\n[bold]Phase 5 — Laptop Pivot[/]")
+        self.state.phase = DeploymentPhase.LAPTOP_PIVOT
         console.print("  [yellow]Reconfigure laptop NIC to management VLAN[/]")
 
-        # Phase 6: Server post-install
-        console.print("\n[bold]Phase 6 — Server Post-Install[/]")
-        console.print("  [yellow]Not yet implemented[/]")
+        # Phase 6: Server provisioning (BIOS, RAID, SPP, OS, iLO)
+        self.run_server_provisioning()
 
-        # Phase 7: Final validation
-        console.print("\n[bold]Phase 7 — Final Validation[/]")
-        console.print("  [yellow]Not yet implemented[/]")
+        # Phase 7: NTP provisioning (Meinberg)
+        self.run_ntp_provisioning()
+
+        # Phase 8: Post-install
+        console.print("\n[bold]Phase 8 — Post-Install[/]")
+        self.state.phase = DeploymentPhase.POST_INSTALL
+        console.print("  [yellow]Post-install tasks (not yet implemented)[/]")
+
+        # Phase 9: Final validation
+        console.print("\n[bold]Phase 9 — Final Validation[/]")
+        self.state.phase = DeploymentPhase.FINAL_VALIDATION
+        console.print("  [yellow]Final validation (not yet implemented)[/]")
 
         self.state.phase = DeploymentPhase.COMPLETE
         console.print("\n[bold green]Deployment complete.[/]")
