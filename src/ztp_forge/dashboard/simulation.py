@@ -726,7 +726,9 @@ class SimulationEngine:
             ("spp_installing", "Installing HPE Service Pack for ProLiant"),
             ("spp_installed", "SPP installation complete"),
             ("os_installing", "Installing OS via virtual media"),
-            ("os_installed", "OS installation complete"),
+            ("os_installed", None),  # custom logging below
+            ("os_configuring", None),  # custom logging below
+            ("os_configured", None),  # custom logging below
             ("ilo_configuring", "Configuring iLO production settings"),
             ("ilo_configured", "iLO configured (network, users, SNMP, NTP)"),
             ("provisioned", "Server provisioned"),
@@ -741,8 +743,10 @@ class SimulationEngine:
                 self._update_device(hostname, state=state)
 
             # Log per-state with appropriate detail
-            if state in ("bios_configuring", "raid_configuring", "spp_installing",
-                         "os_installing", "ilo_configuring"):
+            if state in (
+                "bios_configuring", "raid_configuring",
+                "spp_installing", "ilo_configuring",
+            ):
                 for device_data in hpe_devices:
                     hostname = str(device_data["intended_hostname"])
                     self._log(
@@ -750,7 +754,6 @@ class SimulationEngine:
                         f"{hostname}: {description}",
                     )
             elif state == "os_installed":
-                # Differentiate ESXi vs Windows
                 for device_data in hpe_devices:
                     hostname = str(device_data["intended_hostname"])
                     if hostname.startswith("esxi"):
@@ -762,6 +765,34 @@ class SimulationEngine:
                         self._log(
                             "INFO", "server_provision",
                             f"{hostname}: Windows Server 2022 installed",
+                        )
+            elif state == "os_configuring":
+                for device_data in hpe_devices:
+                    hostname = str(device_data["intended_hostname"])
+                    if hostname.startswith("esxi"):
+                        self._log(
+                            "INFO", "server_provision",
+                            f"{hostname}: configuring ESXi "
+                            f"(vSwitch, mgmt network, NTP, SSH)",
+                        )
+                    else:
+                        self._log(
+                            "INFO", "server_provision",
+                            f"{hostname}: configuring Windows "
+                            f"(hostname, domain join, roles)",
+                        )
+            elif state == "os_configured":
+                for device_data in hpe_devices:
+                    hostname = str(device_data["intended_hostname"])
+                    if hostname.startswith("esxi"):
+                        self._log(
+                            "INFO", "server_provision",
+                            f"{hostname}: ESXi configuration complete",
+                        )
+                    else:
+                        self._log(
+                            "INFO", "server_provision",
+                            f"{hostname}: Windows configuration complete",
                         )
             elif state == "provisioned":
                 for device_data in hpe_devices:
