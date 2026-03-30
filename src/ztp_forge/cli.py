@@ -112,13 +112,87 @@ def provision_ntp(inventory: str) -> None:
     help="Path to inventory file.",
 )
 @click.option("--dry-run", is_flag=True, help="Run discovery and validation only.")
-def deploy(inventory: str, dry_run: bool) -> None:
-    """Execute full deployment — discovery through final validation."""
+@click.option(
+    "--resume", is_flag=True,
+    help="Resume a previously interrupted deployment from its last checkpoint.",
+)
+@click.option(
+    "--checkpoint", "-c",
+    default=".ztp-checkpoint.json",
+    help="Path to checkpoint file.",
+)
+def deploy(inventory: str, dry_run: bool, resume: bool, checkpoint: str) -> None:
+    """Execute full deployment — discovery through final validation.
+
+    Use --resume to continue a deployment that was previously interrupted.
+    The checkpoint file is written automatically after each phase, so
+    progress is never lost.
+    """
     from ztp_forge.orchestrator import Orchestrator
 
-    console.print("[bold blue]ZTP-Forge[/] — Full Deployment")
-    orch = Orchestrator(inventory_path=inventory)
-    orch.run_full_deployment(dry_run=dry_run)
+    if resume:
+        console.print("[bold blue]ZTP-Forge[/] — Resuming Deployment")
+        try:
+            orch = Orchestrator.from_checkpoint(checkpoint_path=checkpoint)
+        except FileNotFoundError:
+            console.print(
+                f"[bold red]No checkpoint file found at {checkpoint}.[/]\n"
+                "Run a deployment first, or check the --checkpoint path."
+            )
+            raise SystemExit(1)
+    else:
+        console.print("[bold blue]ZTP-Forge[/] — Full Deployment")
+        orch = Orchestrator(
+            inventory_path=inventory,
+            checkpoint_path=checkpoint,
+        )
+
+    orch.run_full_deployment(dry_run=dry_run, resume=resume)
+
+
+@main.command()
+@click.option(
+    "--checkpoint", "-c",
+    default=".ztp-checkpoint.json",
+    help="Path to checkpoint file.",
+)
+def status(checkpoint: str) -> None:
+    """Show the status of a saved checkpoint (current phase, devices, etc.)."""
+    from ztp_forge.common.checkpoint import load_checkpoint
+
+    try:
+        data = load_checkpoint(checkpoint)
+    except FileNotFoundError:
+        console.print(f"[dim]No checkpoint found at {checkpoint}[/]")
+        return
+
+    console.print(f"[bold]Checkpoint:[/] {checkpoint}")
+    console.print(f"  Phase:     [cyan]{data['phase']}[/]")
+    console.print(f"  Saved at:  {data.get('saved_at', 'unknown')}")
+    console.print(f"  Inventory: {data.get('inventory_path', 'unknown')}")
+    devices = data.get("discovered_devices", {})
+    console.print(f"  Devices:   {len(devices)}")
+    topo = data.get("topology_order", [])
+    console.print(f"  Topology:  {len(topo)} devices in order")
+    errors = data.get("errors", [])
+    if errors:
+        console.print(f"  [red]Errors:    {len(errors)}[/]")
+        for err in errors:
+            console.print(f"    — {err}")
+
+
+@main.command(name="clear-checkpoint")
+@click.option(
+    "--checkpoint", "-c",
+    default=".ztp-checkpoint.json",
+    help="Path to checkpoint file.",
+)
+def clear_checkpoint(checkpoint: str) -> None:
+    """Remove a saved checkpoint file to start fresh."""
+    from ztp_forge.common.checkpoint import remove_checkpoint
+
+    remove_checkpoint(checkpoint)
+    console.print(f"[dim]Checkpoint cleared: {checkpoint}[/]")
 
 
 @main.command()

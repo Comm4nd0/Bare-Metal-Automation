@@ -42,7 +42,7 @@ dev = [
 ztp-forge = "ztp_forge.cli:main"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src"]
+packages = ["src/ztp_forge"]
 
 [tool.ruff]
 target-version = "py311"

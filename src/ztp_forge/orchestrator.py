@@ -7,6 +7,13 @@ from pathlib import Path
 
 from rich.console import Console
 
+from ztp_forge.common.checkpoint import (
+    DEFAULT_CHECKPOINT_PATH,
+    deserialize_state,
+    load_checkpoint,
+    remove_checkpoint,
+    save_checkpoint,
+)
 from ztp_forge.models import (
     DeploymentInventory,
     DeploymentPhase,
@@ -18,15 +25,98 @@ from ztp_forge.models import (
 logger = logging.getLogger(__name__)
 console = Console()
 
+# Phases in execution order, used to determine which phases to skip on resume.
+PHASE_ORDER: list[DeploymentPhase] = [
+    DeploymentPhase.PRE_FLIGHT,
+    DeploymentPhase.DISCOVERY,
+    DeploymentPhase.TOPOLOGY,
+    DeploymentPhase.CABLING_VALIDATION,
+    DeploymentPhase.FIRMWARE_UPGRADE,
+    DeploymentPhase.HEAVY_TRANSFERS,
+    DeploymentPhase.NETWORK_CONFIG,
+    DeploymentPhase.LAPTOP_PIVOT,
+    DeploymentPhase.SERVER_PROVISION,
+    DeploymentPhase.NTP_PROVISION,
+    DeploymentPhase.POST_INSTALL,
+    DeploymentPhase.FINAL_VALIDATION,
+    DeploymentPhase.COMPLETE,
+]
+
 
 class Orchestrator:
     """Central controller that drives the deployment through its phases."""
 
-    def __init__(self, inventory_path: str, ssh_timeout: int = 30) -> None:
+    def __init__(
+        self,
+        inventory_path: str,
+        ssh_timeout: int = 30,
+        checkpoint_path: str | Path = DEFAULT_CHECKPOINT_PATH,
+    ) -> None:
         self.inventory_path = Path(inventory_path)
         self.ssh_timeout = ssh_timeout
+        self.checkpoint_path = Path(checkpoint_path)
         self.state = DeploymentState()
         self.inventory: DeploymentInventory | None = None
+
+    # ── Checkpoint helpers ──────────────────────────────────────────────────
+
+    def _save_checkpoint(self) -> None:
+        """Persist current state to the checkpoint file."""
+        save_checkpoint(
+            state=self.state,
+            inventory_path=str(self.inventory_path),
+            ssh_timeout=self.ssh_timeout,
+            checkpoint_path=self.checkpoint_path,
+        )
+        console.print(
+            f"  [dim]Checkpoint saved (phase: {self.state.phase.value})[/]"
+        )
+
+    def _remove_checkpoint(self) -> None:
+        """Delete the checkpoint file on successful completion."""
+        remove_checkpoint(self.checkpoint_path)
+
+    def _phase_index(self, phase: DeploymentPhase) -> int:
+        """Return the position of a phase in PHASE_ORDER."""
+        try:
+            return PHASE_ORDER.index(phase)
+        except ValueError:
+            return -1
+
+    def _should_skip(self, phase: DeploymentPhase, resume_after: DeploymentPhase) -> bool:
+        """Return True if *phase* was already completed in the checkpoint."""
+        return self._phase_index(phase) <= self._phase_index(resume_after)
+
+    @classmethod
+    def from_checkpoint(
+        cls,
+        checkpoint_path: str | Path = DEFAULT_CHECKPOINT_PATH,
+    ) -> Orchestrator:
+        """Create an Orchestrator pre-loaded with state from a checkpoint.
+
+        The returned orchestrator is ready to call ``run_full_deployment``
+        with ``resume=True``, which will skip phases that already completed.
+        """
+        data = load_checkpoint(checkpoint_path)
+        orch = cls(
+            inventory_path=data["inventory_path"],
+            ssh_timeout=data.get("ssh_timeout", 30),
+            checkpoint_path=checkpoint_path,
+        )
+        orch.state = deserialize_state(data)
+
+        console.print(
+            f"[bold]Resumed from checkpoint[/] — "
+            f"phase [cyan]{data['phase']}[/], "
+            f"saved at {data.get('saved_at', 'unknown')}"
+        )
+        console.print(
+            f"  {len(orch.state.discovered_devices)} devices, "
+            f"{len(orch.state.topology_order)} in topology order"
+        )
+        return orch
+
+    # ── Inventory ──────────────────────────────────────────────────────────
 
     def _load_inventory(self) -> DeploymentInventory:
         """Load and validate the inventory YAML."""
@@ -421,60 +511,122 @@ class Orchestrator:
 
         return self.state
 
-    def run_full_deployment(self, dry_run: bool = False) -> DeploymentState:
-        """Execute all phases in sequence."""
+    def run_full_deployment(
+        self,
+        dry_run: bool = False,
+        resume: bool = False,
+    ) -> DeploymentState:
+        """Execute all phases in sequence.
+
+        When *resume* is True the orchestrator skips phases that were
+        already completed according to the current ``self.state.phase``.
+        This allows a deployment that was interrupted (Ctrl-C, power loss,
+        error) to pick up where it left off.
+
+        A checkpoint file is written after every phase transition so that
+        progress is never lost.
+        """
         self.inventory = self._load_inventory()
 
-        # Phase 1: Discovery
-        self.run_discovery()
-        self.run_topology()
-        self.run_validation()
+        # The phase recorded in state is the *last completed* phase when
+        # resuming.  We use it to decide which phases to skip.
+        resume_after = self.state.phase if resume else DeploymentPhase.PRE_FLIGHT
+
+        if resume:
+            console.print(
+                f"\n[bold yellow]Resuming deployment after "
+                f"phase: {resume_after.value}[/]"
+            )
+
+        # ── Phase 1: Discovery ─────────────────────────────────────────
+        if not self._should_skip(DeploymentPhase.DISCOVERY, resume_after):
+            self.run_discovery()
+            self._save_checkpoint()
+
+        if not self._should_skip(DeploymentPhase.TOPOLOGY, resume_after):
+            self.run_topology()
+            self._save_checkpoint()
+
+        if not self._should_skip(DeploymentPhase.CABLING_VALIDATION, resume_after):
+            self.run_validation()
+            self.state.phase = DeploymentPhase.CABLING_VALIDATION
+            self._save_checkpoint()
 
         if self.state.has_blocking_errors:
             console.print("\n[bold red]Deployment blocked by errors. Review above.[/]")
+            self.state.phase = DeploymentPhase.FAILED
+            self._save_checkpoint()
             return self.state
 
         if dry_run:
             console.print("\n[bold yellow]DRY RUN — stopping before configuration.[/]")
             return self.state
 
-        # Phase 2: Firmware upgrade on network devices (before config)
-        self.run_firmware_upgrade()
-        if self.state.has_blocking_errors:
-            console.print("\n[bold red]Deployment blocked by firmware errors.[/]")
-            return self.state
+        # ── Phase 2: Firmware upgrade ──────────────────────────────────
+        if not self._should_skip(DeploymentPhase.FIRMWARE_UPGRADE, resume_after):
+            self.run_firmware_upgrade()
+            self._save_checkpoint()
 
-        # Phase 3: Heavy transfers (ISOs, firmware) while network is still flat L2
-        console.print("\n[bold]Phase 3 — Heavy Transfers[/]")
-        self.state.phase = DeploymentPhase.HEAVY_TRANSFERS
+            if self.state.has_blocking_errors:
+                console.print("\n[bold red]Deployment blocked by firmware errors.[/]")
+                self.state.phase = DeploymentPhase.FAILED
+                self._save_checkpoint()
+                return self.state
 
-        # Phase 4: Network configuration (outside-in with dead man's switch)
-        self.run_network_config()
-        if self.state.has_blocking_errors:
-            console.print("\n[bold red]Deployment blocked by network config errors.[/]")
-            return self.state
+        # ── Phase 3: Heavy transfers ───────────────────────────────────
+        if not self._should_skip(DeploymentPhase.HEAVY_TRANSFERS, resume_after):
+            console.print("\n[bold]Phase 3 — Heavy Transfers[/]")
+            self.state.phase = DeploymentPhase.HEAVY_TRANSFERS
+            self._save_checkpoint()
 
-        # Phase 5: Laptop pivot
-        console.print("\n[bold]Phase 5 — Laptop Pivot[/]")
-        self.state.phase = DeploymentPhase.LAPTOP_PIVOT
-        console.print("  [yellow]Reconfigure laptop NIC to management VLAN[/]")
+        # ── Phase 4: Network configuration ─────────────────────────────
+        if not self._should_skip(DeploymentPhase.NETWORK_CONFIG, resume_after):
+            self.run_network_config()
+            self._save_checkpoint()
 
-        # Phase 6: Server provisioning (BIOS, RAID, SPP, OS, iLO)
-        self.run_server_provisioning()
+            if self.state.has_blocking_errors:
+                console.print(
+                    "\n[bold red]Deployment blocked by network config errors.[/]"
+                )
+                self.state.phase = DeploymentPhase.FAILED
+                self._save_checkpoint()
+                return self.state
 
-        # Phase 7: NTP provisioning (Meinberg)
-        self.run_ntp_provisioning()
+        # ── Phase 5: Laptop pivot ──────────────────────────────────────
+        if not self._should_skip(DeploymentPhase.LAPTOP_PIVOT, resume_after):
+            console.print("\n[bold]Phase 5 — Laptop Pivot[/]")
+            self.state.phase = DeploymentPhase.LAPTOP_PIVOT
+            console.print("  [yellow]Reconfigure laptop NIC to management VLAN[/]")
+            self._save_checkpoint()
 
-        # Phase 8: Post-install
-        console.print("\n[bold]Phase 8 — Post-Install[/]")
-        self.state.phase = DeploymentPhase.POST_INSTALL
-        console.print("  [yellow]Post-install tasks (not yet implemented)[/]")
+        # ── Phase 6: Server provisioning ───────────────────────────────
+        if not self._should_skip(DeploymentPhase.SERVER_PROVISION, resume_after):
+            self.run_server_provisioning()
+            self._save_checkpoint()
 
-        # Phase 9: Final validation
-        console.print("\n[bold]Phase 9 — Final Validation[/]")
-        self.state.phase = DeploymentPhase.FINAL_VALIDATION
-        console.print("  [yellow]Final validation (not yet implemented)[/]")
+        # ── Phase 7: NTP provisioning ──────────────────────────────────
+        if not self._should_skip(DeploymentPhase.NTP_PROVISION, resume_after):
+            self.run_ntp_provisioning()
+            self._save_checkpoint()
+
+        # ── Phase 8: Post-install ──────────────────────────────────────
+        if not self._should_skip(DeploymentPhase.POST_INSTALL, resume_after):
+            console.print("\n[bold]Phase 8 — Post-Install[/]")
+            self.state.phase = DeploymentPhase.POST_INSTALL
+            console.print("  [yellow]Post-install tasks (not yet implemented)[/]")
+            self._save_checkpoint()
+
+        # ── Phase 9: Final validation ──────────────────────────────────
+        if not self._should_skip(DeploymentPhase.FINAL_VALIDATION, resume_after):
+            console.print("\n[bold]Phase 9 — Final Validation[/]")
+            self.state.phase = DeploymentPhase.FINAL_VALIDATION
+            console.print("  [yellow]Final validation (not yet implemented)[/]")
+            self._save_checkpoint()
 
         self.state.phase = DeploymentPhase.COMPLETE
         console.print("\n[bold green]Deployment complete.[/]")
+
+        # Clean up checkpoint on success — nothing left to resume.
+        self._remove_checkpoint()
+
         return self.state
