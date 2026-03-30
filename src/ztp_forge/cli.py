@@ -150,6 +150,52 @@ def deploy(inventory: str, dry_run: bool, resume: bool, checkpoint: str) -> None
     orch.run_full_deployment(dry_run=dry_run, resume=resume)
 
 
+@main.command(name="factory-reset")
+@click.option(
+    "--inventory", "-i",
+    default="configs/inventory/inventory.yaml",
+    help="Path to inventory file.",
+)
+@click.option("--dry-run", is_flag=True, help="Show what would be reset without executing.")
+@click.option(
+    "--device-type",
+    type=click.Choice(["all", "cisco", "hpe", "meinberg"]),
+    default="all",
+    help="Which device types to reset.",
+)
+@click.option("--confirm", is_flag=True, help="Skip interactive confirmation prompt.")
+@click.option("--timeout", "-t", default=30, help="SSH timeout in seconds.")
+def factory_reset(
+    inventory: str, dry_run: bool, device_type: str, confirm: bool, timeout: int
+) -> None:
+    """Factory-reset all infrastructure back to a ZTP-ready state.
+
+    This is a DESTRUCTIVE operation that erases device configurations,
+    clears RAID arrays, and resets management controllers to factory
+    defaults.  All devices will need to be re-provisioned after reset.
+
+    Devices are reset in an order that preserves management connectivity:
+    NTP and servers first (leaf devices), then network devices inside-out.
+    """
+    from ztp_forge.orchestrator import Orchestrator
+
+    console.print("[bold red]ZTP-Forge[/] — Factory Reset")
+
+    if not dry_run and not confirm:
+        console.print(
+            "\n[bold yellow]WARNING:[/] This will erase all device configurations "
+            "and return infrastructure to factory defaults."
+        )
+        console.print("  Device types: [bold]" + device_type + "[/]")
+        console.print("  Inventory:    [bold]" + inventory + "[/]\n")
+        if not click.confirm("Are you sure you want to proceed?"):
+            console.print("[dim]Aborted.[/]")
+            return
+
+    orch = Orchestrator(inventory_path=inventory, ssh_timeout=timeout)
+    orch.run_factory_reset(dry_run=dry_run, device_types=device_type)
+
+
 @main.command()
 @click.option(
     "--checkpoint", "-c",

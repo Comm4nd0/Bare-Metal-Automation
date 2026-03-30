@@ -224,6 +224,56 @@ ZTP-Forge is a zero-touch provisioning tool for bare-metal infrastructure. It au
 - Atomic write (tmp + rename) prevents corrupt checkpoints from partial writes
 - Checkpoint is removed on successful completion to prevent stale resumes
 
+### Session 7 — Factory Reset Automation
+
+**Date**: 2026-03-30
+**Branch**: `claude/factory-reset-automation-dyjGO`
+
+**What was done**:
+- Created `resetter/` module with three device-type-specific resetters:
+  - `resetter/network.py` — Cisco network device factory reset via SSH (`write erase` + `reload`)
+    - Tries production credentials first, falls back to factory defaults
+    - Handles interactive prompts (confirm, save prompt)
+  - `resetter/server.py` — HPE server factory reset via Redfish/iLO 5
+    - Resets BIOS to factory defaults (`Bios.ResetBios` action)
+    - Clears all RAID logical drives (DELETE via SmartStorage API)
+    - Resets iLO to factory defaults (`HpeiLO.ResetToFactoryDefaults` with `ResetType: Default` to preserve network)
+    - Reboots server to apply changes
+  - `resetter/meinberg.py` — Meinberg NTP factory reset via REST API
+    - Issues factory reset with `preserve_network: true` to keep device reachable
+    - Waits for device reboot with factory-default credentials
+- Updated `common/parallel.py`:
+  - Added `ascending` parameter to `group_devices_by_depth()` for inside-out ordering
+  - Added `run_parallel_by_depth_ascending()` for reset operations (shallowest depth first)
+- Updated `orchestrator.py`:
+  - Added `run_factory_reset()` method with 3-phase reset sequence: NTP → Servers → Network
+  - Added helper methods: `_reset_meinberg_devices()`, `_reset_hpe_servers()`, `_reset_network_devices()`
+  - Added `FACTORY_RESET` to `PHASE_ORDER`
+- Updated `cli.py`:
+  - Added `factory-reset` command with `--inventory`, `--dry-run`, `--device-type`, `--confirm`, `--timeout` options
+  - Interactive confirmation prompt for safety (skippable with `--confirm`)
+  - Device type filtering: `all`, `cisco`, `hpe`, `meinberg`
+- Updated `models.py`:
+  - Added `RESETTING` and `RESET_COMPLETE` to `DeviceState` enum
+  - Added `FACTORY_RESET` to `DeploymentPhase` enum
+- Updated `dashboard/models.py`:
+  - Added new state/phase choices and CSS classes for dashboard display
+- Created Django migration `0003_alter_deployment_phase_alter_device_state.py`
+- Created `tests/unit/test_resetter.py` with 20 tests covering:
+  - Network resetter: success, connection failure, exception handling, credential fallback, save prompt handling
+  - HPE server resetter: success, BIOS failure, connection failure, credential ordering, BIOS API, RAID clearing
+  - Meinberg resetter: success, connection failure, reboot timeout
+  - Parallel ordering: ascending depth sort (inside-out), descending default (outside-in)
+  - Model states: RESETTING, RESET_COMPLETE, FACTORY_RESET phase existence
+
+**Decisions made**:
+- Reset order: NTP and servers first (leaf devices, don't carry management traffic), then network devices inside-out (ascending BFS depth — closest to laptop first, furthest last)
+- Inside-out ordering is the reverse of provisioning's outside-in ordering — preserves management connectivity throughout the reset process
+- iLO reset uses `ResetType: Default` (not `All`) to preserve network settings, keeping iLO reachable after reset
+- Meinberg factory reset preserves network settings for the same reason
+- Interactive confirmation required by default for safety (destructive operation); `--confirm` flag skips the prompt for scripted use
+- Device type filtering (`--device-type`) allows selective reset of only certain infrastructure components
+
 ---
 
 ## Current State of the Project
@@ -239,6 +289,7 @@ ZTP-Forge is a zero-touch provisioning tool for bare-metal infrastructure. It au
 - Meinberg NTP provisioning (firmware, network, NTP config, system settings)
 - Parallel execution engine respecting BFS depth constraints
 - **Checkpoint/resume** — deployment can be stopped and restarted at any phase boundary
+- **Factory reset** — reverse provisioning to return all devices to factory defaults (Cisco write erase, HPE BIOS/RAID/iLO reset, Meinberg factory reset)
 
 ### What still needs to be built (from ROADMAP)
 

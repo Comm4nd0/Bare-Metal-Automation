@@ -22,6 +22,7 @@ class Deployment(models.Model):
             ("ntp_provision", "NTP Provisioning"),
             ("post_install", "Post-Install"),
             ("final_validation", "Final Validation"),
+            ("factory_reset", "Factory Reset"),
             ("complete", "Complete"),
             ("failed", "Failed"),
         ],
@@ -130,6 +131,8 @@ class Device(models.Model):
             ("ilo_configured", "iLO Configured"),
             ("provisioning", "Provisioning"),
             ("provisioned", "Provisioned"),
+            ("resetting", "Resetting"),
+            ("reset_complete", "Reset Complete"),
             ("failed", "Failed"),
         ],
         default="unknown",
@@ -170,6 +173,8 @@ class Device(models.Model):
             "ilo_configured": "primary",
             "provisioning": "warning",
             "provisioned": "success",
+            "resetting": "warning",
+            "reset_complete": "info",
             "failed": "danger",
         }.get(self.state, "secondary")
 
