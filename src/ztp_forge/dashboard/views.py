@@ -8,7 +8,7 @@ from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_GET, require_http_methods, require_POST
 
 from .models import CablingResult, Deployment, DeploymentLog, Device
-
+from .simulation import simulation_status, start_simulation, stop_simulation
 
 # ── HTML Views ──────────────────────────────────────────────────────────────
 
@@ -35,6 +35,7 @@ def dashboard(request):
         "devices": devices,
         "logs": logs,
         "cabling_stats": cabling_stats,
+        "simulation": simulation_status(),
     })
 
 
@@ -105,6 +106,7 @@ def api_status(request):
             "updated_at": deployment.updated_at.isoformat(),
         },
         "devices": devices,
+        "simulation": simulation_status(),
     })
 
 
@@ -427,3 +429,32 @@ def api_logs(request, deployment_pk):
             for log in logs
         ]
     })
+
+
+# ── Simulation API ─────────────────────────────────────────────────────────
+
+@csrf_exempt
+@require_POST
+def api_start_simulation(request):
+    """POST /api/simulation/start/ — start a simulated deployment."""
+    data, err = _parse_json_body(request) if request.body else ({}, None)
+    if err:
+        return err
+    name = data.get("name", "SIM-Rack-Demo")
+    result = start_simulation(name)
+    status_code = 200 if result["status"] == "started" else 409
+    return JsonResponse(result, status=status_code)
+
+
+@csrf_exempt
+@require_POST
+def api_stop_simulation(request):
+    """POST /api/simulation/stop/ — stop the running simulation."""
+    result = stop_simulation()
+    return JsonResponse(result)
+
+
+@require_GET
+def api_simulation_status(request):
+    """GET /api/simulation/status/ — check if simulation is running."""
+    return JsonResponse(simulation_status())

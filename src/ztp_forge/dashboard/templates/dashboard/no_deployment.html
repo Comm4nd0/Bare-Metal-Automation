@@ -20,6 +20,55 @@
                 </p>
             </div>
         </div>
+        <div class="card bg-body-secondary mt-3 text-start">
+            <div class="card-body">
+                <h6 class="card-title"><i class="bi bi-play-circle"></i> Simulation Mode</h6>
+                <p class="mb-2 text-secondary small">
+                    Run a simulated deployment to see the full provisioning lifecycle in
+                    action — no hardware required. Includes 16 devices: Cisco switches,
+                    routers, firewalls, HPE ESXi servers, a Windows backup server, and
+                    Meinberg NTP.
+                </p>
+                <button id="btn-start-sim" class="btn btn-primary" onclick="startSimulation()">
+                    <i class="bi bi-lightning-charge"></i> Start Simulation
+                </button>
+                <span id="sim-status" class="ms-2 small text-secondary"></span>
+            </div>
+        </div>
     </div>
 </div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+function startSimulation() {
+    const btn = document.getElementById('btn-start-sim');
+    const status = document.getElementById('sim-status');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> Starting...';
+    status.textContent = '';
+
+    fetch("{% url 'api-simulation-start' %}", {method: 'POST'})
+        .then(r => r.json().then(data => ({status: r.status, data})))
+        .then(({status: code, data}) => {
+            if (data.status === 'started') {
+                status.textContent = 'Simulation started — redirecting...';
+                status.className = 'ms-2 small text-success';
+                setTimeout(() => window.location.href = '/', 1500);
+            } else if (data.status === 'already_running') {
+                status.textContent = 'A simulation is already running.';
+                status.className = 'ms-2 small text-warning';
+                btn.disabled = false;
+                btn.innerHTML = '<i class="bi bi-lightning-charge"></i> Start Simulation';
+                setTimeout(() => window.location.href = '/', 1000);
+            }
+        })
+        .catch(() => {
+            status.textContent = 'Failed to start simulation.';
+            status.className = 'ms-2 small text-danger';
+            btn.disabled = false;
+            btn.innerHTML = '<i class="bi bi-lightning-charge"></i> Start Simulation';
+        });
+}
+</script>
 {% endblock %}
