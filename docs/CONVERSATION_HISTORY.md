@@ -188,6 +188,42 @@ ZTP-Forge is a zero-touch provisioning tool for bare-metal infrastructure. It au
 - Stop event checked every 0.5s via interruptible sleep helper
 - Double-start prevented (returns 409 Conflict)
 
+### Session 6 — Checkpoint/Resume
+
+**Date**: 2026-03-30
+**Branch**: `claude/add-checkpoint-resume-fyaWE`
+
+**What was done**:
+- Created `common/checkpoint.py` — state serialization/deserialization module:
+  - Serializes `DeploymentState` (devices, topology, cabling results, errors, warnings) to JSON
+  - Deserializes all models back including enums (DeviceState, DeviceRole, DevicePlatform)
+  - Atomic file writes (write to `.tmp` then rename) to prevent corruption on power loss
+  - Save/load/remove checkpoint file operations
+- Updated `orchestrator.py`:
+  - Added `PHASE_ORDER` constant listing all phases in execution order
+  - Added `_save_checkpoint()` after every phase transition in `run_full_deployment()`
+  - Added `_should_skip()` logic to skip already-completed phases on resume
+  - Added `from_checkpoint()` class method to reconstruct Orchestrator from a checkpoint file
+  - Added `resume` parameter to `run_full_deployment()` — skips phases up to the last checkpoint
+  - Checkpoint is automatically deleted on successful deployment completion
+  - On failure, checkpoint is saved with `FAILED` phase so the user can inspect and retry
+- Updated `cli.py`:
+  - Added `--resume` flag and `--checkpoint` option to `deploy` command
+  - Added `status` command to inspect a saved checkpoint
+  - Added `clear-checkpoint` command to remove a checkpoint file
+- Fixed `pyproject.toml` — corrected `packages` from `["src"]` to `["src/ztp_forge"]` (was preventing editable install from working)
+- Created `tests/unit/test_checkpoint.py` with 15 tests covering:
+  - Serialization round-trip (state, devices, CDP neighbours, cabling results, enums, None handling)
+  - File I/O (save/load, missing file, remove, atomic write, valid JSON)
+  - Orchestrator resume (from_checkpoint, should_skip logic, phase order completeness)
+
+**Decisions made**:
+- Checkpoint is a single JSON file (`.ztp-checkpoint.json` by default) — simple, human-readable, no DB dependency
+- State is saved after each phase, not within phases — provides coarse-grained resume points
+- On resume, phases are skipped based on the last completed phase in the checkpoint
+- Atomic write (tmp + rename) prevents corrupt checkpoints from partial writes
+- Checkpoint is removed on successful completion to prevent stale resumes
+
 ---
 
 ## Current State of the Project
@@ -202,6 +238,7 @@ ZTP-Forge is a zero-touch provisioning tool for bare-metal infrastructure. It au
 - HPE server provisioning (BIOS, RAID, SPP, OS, iLO via Redfish)
 - Meinberg NTP provisioning (firmware, network, NTP config, system settings)
 - Parallel execution engine respecting BFS depth constraints
+- **Checkpoint/resume** — deployment can be stopped and restarted at any phase boundary
 
 ### What still needs to be built (from ROADMAP)
 
@@ -210,7 +247,7 @@ ZTP-Forge is a zero-touch provisioning tool for bare-metal infrastructure. It au
 - **Milestone 3 (Network Config)**: Config renderer, Ansible dynamic inventory, playbooks, dead man's switch implementation, rollback handler
 - **Milestone 4 (Server Provisioning)**: ~~Redfish client~~, ~~iLO discovery~~, ~~firmware update~~, ~~BIOS config~~, ~~virtual media~~, PXE (partially done — virtual media boot implemented)
 - **Milestone 5 (Dashboard)**: WebSocket live updates, topology visualisation (D3.js/vis.js), deploy button, log viewer, ~~simulation mode~~
-- **Milestone 6 (Hardening)**: Serial console fallback, retry logic, state persistence, multi-NIC, LLDP
+- **Milestone 6 (Hardening)**: Serial console fallback, retry logic, ~~state persistence~~, multi-NIC, LLDP
 
 ### Known issues / open items
 

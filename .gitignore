@@ -29,6 +29,11 @@ logs/
 
 # State files
 .deployment-state.json
+.ztp-checkpoint.json
+
+# Coverage
+.coverage
+htmlcov/
 
 # Django
 db.sqlite3
