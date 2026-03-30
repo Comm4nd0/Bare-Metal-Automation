@@ -1,19 +1,19 @@
-# ZTP-Forge Conversation History
+# Bare Metal Automation Conversation History
 
-This document tracks the history of AI-assisted development sessions on the ZTP-Forge project, providing context for future conversations.
+This document tracks the history of AI-assisted development sessions on the Bare Metal Automation project, providing context for future conversations.
 
 ---
 
 ## Project Overview
 
 - **Repository**: `Comm4nd0/Bare-Metal-Automation`
-- **Package name**: `ztp-forge`
+- **Package name**: `bare-metal-automation`
 - **Author**: Marco
 - **Python**: 3.11+
 - **Build system**: Hatchling
 - **License**: MIT
 
-ZTP-Forge is a zero-touch provisioning tool for bare-metal infrastructure. It automates the full lifecycle from factory-new Cisco switches/routers/firewalls and HPE servers to fully configured production infrastructure, driven from a deployment laptop.
+Bare Metal Automation is a zero-touch provisioning tool for bare-metal infrastructure. It automates the full lifecycle from factory-new Cisco switches/routers/firewalls and HPE servers to fully configured production infrastructure, driven from a deployment laptop.
 
 ### Key technical choices
 
@@ -34,12 +34,12 @@ ZTP-Forge is a zero-touch provisioning tool for bare-metal infrastructure. It au
 
 **Date**: 2026-03-29
 **Commits**:
-- `df1b007` — Initial scaffold: ZTP-Forge zero-touch provisioning framework
-- `74b11e9` — Add version string to ztp_forge package
+- `df1b007` — Initial scaffold: Bare Metal Automation zero-touch provisioning framework
+- `74b11e9` — Add version string to bare_metal_automation package
 
 **What was done**:
 - Created the full project structure with `pyproject.toml`, `.gitignore`, README, and ROADMAP
-- Scaffolded all core modules under `src/ztp_forge/`:
+- Scaffolded all core modules under `src/bare_metal_automation/`:
   - `cli.py` — Click-based CLI entry point
   - `models.py` — Pydantic data models
   - `inventory.py` — Inventory YAML loader
@@ -56,7 +56,7 @@ ZTP-Forge is a zero-touch provisioning tool for bare-metal infrastructure. It au
 - Wrote the development ROADMAP with 6 milestones
 
 **Decisions made**:
-- Package lives under `src/ztp_forge/` (src layout)
+- Package lives under `src/bare_metal_automation/` (src layout)
 - 7-phase deployment model: Pre-flight → Discovery → Topology/Cabling → Heavy Transfers → Network Config → Laptop Pivot → Server Post-Install → Final Validation
 - Configuration push uses "outside-in" ordering (furthest device from laptop first)
 - `reload in 5` used as dead man's switch during config pushes
@@ -172,7 +172,7 @@ ZTP-Forge is a zero-touch provisioning tool for bare-metal infrastructure. It au
   - Includes simulated warnings (SSH timeout retry, cabling issues, NTP GPS lock delay)
   - Start/stop/status API with thread-safe controls
 - Created `management/commands/run_simulation.py` — CLI entry point (`python manage.py run_simulation`)
-- Added `ztp-forge simulate` CLI command
+- Added `bare-metal-automation simulate` CLI command
 - Added 3 API endpoints:
   - `POST /api/simulation/start/` — start a simulation
   - `POST /api/simulation/stop/` — stop running simulation
@@ -211,18 +211,139 @@ ZTP-Forge is a zero-touch provisioning tool for bare-metal infrastructure. It au
   - Added `--resume` flag and `--checkpoint` option to `deploy` command
   - Added `status` command to inspect a saved checkpoint
   - Added `clear-checkpoint` command to remove a checkpoint file
-- Fixed `pyproject.toml` — corrected `packages` from `["src"]` to `["src/ztp_forge"]` (was preventing editable install from working)
+- Fixed `pyproject.toml` — corrected `packages` from `["src"]` to `["src/bare_metal_automation"]` (was preventing editable install from working)
 - Created `tests/unit/test_checkpoint.py` with 15 tests covering:
   - Serialization round-trip (state, devices, CDP neighbours, cabling results, enums, None handling)
   - File I/O (save/load, missing file, remove, atomic write, valid JSON)
   - Orchestrator resume (from_checkpoint, should_skip logic, phase order completeness)
 
 **Decisions made**:
-- Checkpoint is a single JSON file (`.ztp-checkpoint.json` by default) — simple, human-readable, no DB dependency
+- Checkpoint is a single JSON file (`.bma-checkpoint.json` by default) — simple, human-readable, no DB dependency
 - State is saved after each phase, not within phases — provides coarse-grained resume points
 - On resume, phases are skipped based on the last completed phase in the checkpoint
 - Atomic write (tmp + rename) prevents corrupt checkpoints from partial writes
 - Checkpoint is removed on successful completion to prevent stale resumes
+
+### Session 7 — Rename to Bare Metal Automation + Laptop Service Status
+
+**Date**: 2026-03-30
+**Branch**: main
+
+**What was done**:
+- Renamed project from ZTP-Forge to Bare Metal Automation (BMA):
+  - `src/ztp_forge/` → `src/bare_metal_automation/` (`git mv`)
+  - Package name: `bare-metal-automation`, CLI: `bare-metal-automation`
+  - All imports, docstrings, display strings, env vars, config defaults updated
+  - Env vars: `ZTP_FORGE_*` → `BMA_*`; checkpoint: `.bma-checkpoint.json`
+  - Config defaults: `ztpadmin` → `bmaadmin`, `ztp-monitoring` → `bma-monitoring`
+- Added laptop service status card to the dashboard sidebar:
+  - New module `common/services.py` — checks DHCP, TFTP, HTTP, SSH via `systemctl is-active`
+  - New API endpoint `GET /api/services/` in views.py + urls.py
+  - Dashboard `index.html` sidebar now shows a "Laptop Services" card above the activity log
+  - JS polls `/api/services/` every 15 seconds and updates the card in-place
+
+**Decisions made**:
+- Service detection via systemd (`systemctl is-active`) — handles multiple candidates (e.g. dnsmasq OR isc-dhcp-server for DHCP)
+- Service card updates in-place via JS (no full page reload needed for service status changes)
+- Poll interval 15s for services (slower than device status at 5s — services change rarely)
+
+### Session 8 — Deployment Control Buttons (Start / Stop / Resume)
+
+**Date**: 2026-03-30
+**Branch**: main
+
+**What was done**:
+- Added deployment control buttons to the dashboard so deployments can be driven from the browser:
+  - **Start Deployment** — launches a real deployment using the configured inventory
+  - **Stop After Phase** — graceful stop that halts between phases (never mid-hardware-operation)
+  - **Resume** — continues from the last checkpoint file
+- Updated `orchestrator.py`:
+  - Added `stop_event` (threading.Event) and `on_phase_change` callback params
+  - Added `_check_stop()` method checked after every `_save_checkpoint()` call (~10 points)
+  - `from_checkpoint()` now accepts `stop_event` and `on_phase_change` kwargs
+- Added `"stopped"` phase to `dashboard/models.py` with migration
+- Created `dashboard/deployment.py` — background thread runner mirroring `simulation.py` pattern:
+  - Module-level thread, lock, stop event, deployment ID
+  - `start_deployment()`, `stop_deployment()`, `resume_deployment()`, `deployment_status()`
+  - Creates Orchestrator with `stop_event` and `on_phase_change` ORM callback
+- Added 4 API endpoints in `views.py` + `urls.py`:
+  - `POST /api/deployment/start/`, `stop/`, `resume/`
+  - `GET /api/deployment/status/`
+- Updated `dashboard()` view and `api_status()` to include `deployment_control` context
+- Updated `index.html`:
+  - Context-aware buttons in header (Start / Stop / Resume based on state)
+  - JS functions `startDeployment()`, `stopDeployment()`, `resumeDeployment()`
+  - Polling now detects deployment running state changes and reloads page
+- Updated `no_deployment.html` — added "Start Deployment" button alongside simulation
+- Updated `simulation.py` — mutual exclusion: `start_simulation()` checks `deployment_status()["running"]`
+
+**Decisions made**:
+- Deployment and simulation are mutually exclusive (cannot run simultaneously)
+- Graceful stop only — sets a threading.Event, checked at phase boundaries after checkpoint saves
+- Mirrors the simulation.py threading pattern exactly (proven, simple, no Celery needed)
+- Buttons are server-rendered based on state, with JS polling for dynamic updates
+
+### Session 9 — Rollback to Factory (Full Lifecycle Support)
+
+**Date**: 2026-03-30
+**Branch**: main
+
+**What was done**:
+- Implemented full "Rollback to Factory" capability for the deployable infrastructure kit lifecycle (Build → Ship → Deploy → Mission → Return → Rollback → Repeat)
+- New `RollbackPhase` enum with 8 phases: pre_flight, ntp_reset, server_reset, laptop_pivot, network_reset, final_check, complete, failed
+- New `DeviceState` values: `resetting`, `factory_reset`, `powered_off`
+- Created `rollback/` package with 4 modules:
+  - `network.py` — `NetworkResetter`: SSH `write erase` + `reload` for Cisco IOS/IOS-XE/ASA
+  - `server.py` — `HPEServerResetter`: Redfish BIOS reset, RAID delete, virtual media eject, iLO factory reset (preserves network), power off
+  - `meinberg.py` — `MeinbergResetter`: factory reset via API or manual config revert + reboot
+  - `orchestrator.py` — `RollbackOrchestrator`: phase sequencer with checkpoint/resume/stop, reads deployment checkpoint to discover devices
+- Created `dashboard/rollback.py` — background thread runner (mirrors deployment.py pattern)
+- Added 4 API endpoints: `POST /api/rollback/start|stop|resume/`, `GET /api/rollback/status/`
+- Dashboard UI:
+  - "Rollback to Factory" button appears when deployment is `complete`
+  - Safety confirmation modal: operator must type deployment name to confirm
+  - Rollback progress bar with orange/red color scheme
+  - Device states show resetting/factory_reset/powered_off with appropriate badges
+  - Stop/Resume buttons during rollback
+- Simulation now runs the full lifecycle: all 13 deployment phases followed by 6 rollback phases
+- CLI: `bare-metal-automation rollback` command with `--resume` and confirmation prompt
+- Triple mutual exclusion: deployment, simulation, and rollback cannot run simultaneously
+
+**Decisions made**:
+- Factory resets (not snapshots) — deterministic, simple, matches operational intent of "clean slate for next build"
+- Rollback order: NTP → Servers (via management VLAN) → laptop pivot back to bootstrap → network devices (outside-in, core last)
+- iLO factory reset uses `ResetType: "Default"` to preserve network access during reset
+- Operator must type deployment name to confirm rollback (prevent accidental triggers by non-technical operators)
+- Own rollback checkpoint file (`.bma-rollback-checkpoint.json`) — both checkpoints deleted on successful rollback
+
+### Session 10 — NetBox Integration + Prepare Build
+
+**Date**: 2026-03-30
+**Branch**: main
+
+**What was done**:
+- Implemented NetBox as single source of truth for deployable node configurations
+- Created `netbox/` package with 4 modules:
+  - `client.py` — `NetBoxClient` wrapping pynetbox with operator-friendly error handling
+  - `mapper.py` — Pure mapping functions: NetBox device/config context → BMA inventory spec format
+  - `loader.py` — `NetBoxLoader`: queries NetBox, maps data, returns identical `DeploymentInventory`
+  - `git.py` — `GitRepoManager`: auto clone/pull templates and firmware from a git repo
+- Created `dashboard/prepare.py` — background thread runner for "Prepare Build" (8 phases: connect → fetch devices → fetch configs → fetch IPAM → map → sync git → verify files → generate YAML)
+- Added 4 API endpoints: `GET /api/prepare/nodes/`, `POST /api/prepare/start|stop/`, `GET /api/prepare/status/`
+- Dashboard UI: "Prepare Build from NetBox" card on no_deployment page with node dropdown, progress bar, error/success display
+- CLI: `bare-metal-automation prepare --node D001` command with NetBox URL/token options
+- Added `pynetbox>=7.3` dependency
+- NetBox settings: `BMA_NETBOX_URL`, `BMA_NETBOX_TOKEN`, `BMA_NETBOX_TAG_PATTERN`, `BMA_GIT_REPO_URL`, `BMA_GIT_REPO_BRANCH`, `BMA_GIT_REPO_PATH`
+- NetBox feature is optional — when `BMA_NETBOX_URL` is empty, Prepare Build is hidden, manual YAML workflow still works
+
+**Decisions made**:
+- `DeploymentInventory` is the contract boundary — NetBox loader produces identical output to YAML loader, zero downstream changes
+- Devices in NetBox tagged with prefix per kit (D001, D002, D003); config contexts hold all structured config as JSON
+- Templates and firmware live in a git repo, auto-cloned/pulled during preparation
+- ROLE_MAP and PLATFORM_MAP in mapper.py translate NetBox slugs to BMA values
+- Generated `inventory.yaml` written to disk for debugging and as fallback
+- Operator flow: Prepare Build → Start Deployment → Rollback — all from dashboard buttons
+- Quad mutual exclusion: prepare, deployment, simulation, rollback cannot run simultaneously
 
 ---
 
@@ -239,6 +360,10 @@ ZTP-Forge is a zero-touch provisioning tool for bare-metal infrastructure. It au
 - Meinberg NTP provisioning (firmware, network, NTP config, system settings)
 - Parallel execution engine respecting BFS depth constraints
 - **Checkpoint/resume** — deployment can be stopped and restarted at any phase boundary
+- **Laptop service status** — dashboard sidebar shows DHCP/TFTP/HTTP/SSH status via systemd, polls every 15s
+- **Deployment control buttons** — Start/Stop/Resume from the dashboard UI, mutual exclusion with simulation
+- **Rollback to Factory** — Full factory reset of all devices (network, servers, NTP) from dashboard or CLI, with checkpoint/resume, safety confirmation, and simulation support
+- **NetBox integration** — Single source of truth for node configs; "Prepare Build" dashboard button pulls from NetBox + git repo, generates inventory; optional (backward-compatible with manual YAML)
 
 ### What still needs to be built (from ROADMAP)
 
@@ -246,7 +371,7 @@ ZTP-Forge is a zero-touch provisioning tool for bare-metal infrastructure. It au
 - **Milestone 2 (Cabling Validation)**: Intent parser, cabling diff engine, adaptation engine
 - **Milestone 3 (Network Config)**: Config renderer, Ansible dynamic inventory, playbooks, dead man's switch implementation, rollback handler
 - **Milestone 4 (Server Provisioning)**: ~~Redfish client~~, ~~iLO discovery~~, ~~firmware update~~, ~~BIOS config~~, ~~virtual media~~, PXE (partially done — virtual media boot implemented)
-- **Milestone 5 (Dashboard)**: WebSocket live updates, topology visualisation (D3.js/vis.js), deploy button, log viewer, ~~simulation mode~~
+- **Milestone 5 (Dashboard)**: WebSocket live updates, topology visualisation (D3.js/vis.js), ~~deploy button~~, log viewer, ~~simulation mode~~
 - **Milestone 6 (Hardening)**: Serial console fallback, retry logic, ~~state persistence~~, multi-NIC, LLDP
 
 ### Known issues / open items
@@ -261,14 +386,15 @@ ZTP-Forge is a zero-touch provisioning tool for bare-metal infrastructure. It au
 
 ### Source layout
 ```
-src/ztp_forge/
+src/bare_metal_automation/
 ├── __init__.py              # Version string
 ├── cli.py                   # Click CLI (discover, validate, configure, provision, serve)
 ├── models.py                # Dataclass models + enums
 ├── inventory.py             # YAML inventory loader + validator
 ├── orchestrator.py          # Phase-based state machine with parallel execution
 ├── common/
-│   └── parallel.py          # ThreadPoolExecutor grouped by BFS depth
+│   ├── parallel.py          # ThreadPoolExecutor grouped by BFS depth
+│   └── services.py          # Laptop service status checks (systemctl)
 ├── discovery/engine.py      # DHCP + CDP + SNMP discovery
 ├── topology/builder.py      # NetworkX graph + BFS
 ├── cabling/validator.py     # CDP vs intent diff
@@ -278,7 +404,17 @@ src/ztp_forge/
 ├── provisioner/
 │   ├── server.py            # HPE Redfish provisioning (BIOS/RAID/SPP/OS/iLO)
 │   └── meinberg.py          # Meinberg NTP REST API provisioning
-└── dashboard/               # Django app (models, views, API, templates, simulation)
+├── rollback/
+│   ├── orchestrator.py      # Rollback phase sequencer with checkpoint/resume
+│   ├── network.py           # Cisco factory reset (write erase + reload)
+│   ├── server.py            # HPE factory reset via Redfish (BIOS/RAID/iLO/power off)
+│   └── meinberg.py          # Meinberg factory reset via REST API
+├── netbox/
+│   ├── client.py            # NetBox API client (pynetbox wrapper)
+│   ├── loader.py            # Load node from NetBox → DeploymentInventory
+│   ├── mapper.py            # Transform NetBox data to BMA spec format
+│   └── git.py               # Git repo clone/pull for templates + firmware
+└── dashboard/               # Django app (models, views, API, templates, sim, rollback, prepare)
 ```
 
 ### Deployment phases (in order)

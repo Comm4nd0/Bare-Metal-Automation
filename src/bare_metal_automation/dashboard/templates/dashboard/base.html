@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en" data-bs-theme="dark">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{% block title %}Bare Metal Automation{% endblock %}</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
+    <style>
+        :root {
+            --bma-accent: #0d6efd;
+        }
+        body { min-height: 100vh; }
+        .navbar-brand { font-weight: 700; letter-spacing: .05em; }
+        .phase-badge { font-size: .85rem; }
+        .device-card { transition: box-shadow .2s; }
+        .device-card:hover { box-shadow: 0 0 0 2px var(--bma-accent); }
+        .state-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; }
+        .state-dot.success { background: #198754; }
+        .state-dot.warning { background: #ffc107; }
+        .state-dot.danger  { background: #dc3545; }
+        .state-dot.info    { background: #0dcaf0; }
+        .state-dot.primary { background: #0d6efd; }
+        .state-dot.secondary { background: #6c757d; }
+        .log-entry { font-family: 'SFMono-Regular', monospace; font-size: .82rem; padding: .25rem 0; border-bottom: 1px solid rgba(255,255,255,.05); }
+        .progress-phases { display: flex; gap: 2px; }
+        .progress-phases .phase-step { flex: 1; height: 6px; border-radius: 3px; background: rgba(255,255,255,.1); }
+        .progress-phases .phase-step.done { background: #198754; }
+        .progress-phases .phase-step.active { background: #0d6efd; animation: pulse 1.5s infinite; }
+        .progress-phases .phase-step.failed { background: #dc3545; }
+        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: .5; } }
+        .sim-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #0d6efd; animation: pulse 1.5s infinite; }
+    </style>
+    {% block extra_css %}{% endblock %}
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg border-bottom mb-4">
+        <div class="container-fluid">
+            <a class="navbar-brand" href="{% url 'dashboard' %}">
+                <i class="bi bi-lightning-charge-fill text-primary"></i> Bare Metal Automation
+            </a>
+            <ul class="navbar-nav ms-auto">
+                <li class="nav-item" id="nav-sim-indicator" style="display:none;">
+                    <span class="nav-link">
+                        <span class="sim-dot me-1"></span>
+                        <span class="text-info small">Simulation Running</span>
+                        <button class="btn btn-sm btn-outline-danger ms-2 py-0 px-1"
+                                onclick="stopSimulation()" title="Stop Simulation">
+                            <i class="bi bi-stop-fill"></i>
+                        </button>
+                    </span>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link" href="{% url 'deployment-list' %}">
+                        <i class="bi bi-list-ul"></i> Deployments
+                    </a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link" href="{% url 'api-status' %}">
+                        <i class="bi bi-braces"></i> API
+                    </a>
+                </li>
+            </ul>
+        </div>
+    </nav>
+
+    <div class="container-fluid px-4">
+        {% block content %}{% endblock %}
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+    function stopSimulation() {
+        fetch("{% url 'api-simulation-stop' %}", {method: 'POST'})
+            .then(() => {
+                const ind = document.getElementById('nav-sim-indicator');
+                if (ind) ind.style.display = 'none';
+            })
+            .catch(() => {});
+    }
+
+    // Poll simulation status to show/hide navbar indicator
+    (function() {
+        function checkSimStatus() {
+            fetch("{% url 'api-simulation-status' %}")
+                .then(r => r.json())
+                .then(data => {
+                    const ind = document.getElementById('nav-sim-indicator');
+                    if (ind) ind.style.display = data.running ? '' : 'none';
+                })
+                .catch(() => {});
+        }
+        checkSimStatus();
+        setInterval(checkSimStatus, 5000);
+    })();
+    </script>
+    {% block extra_js %}{% endblock %}
+</body>
+</html>

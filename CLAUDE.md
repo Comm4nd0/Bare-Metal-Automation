@@ -2,7 +2,7 @@
 
 ## Project
 
-ZTP-Forge — Zero-touch provisioning for bare-metal infrastructure (Cisco network devices + HPE servers).
+Bare Metal Automation (BMA) — Zero-touch provisioning for bare-metal infrastructure (Cisco network devices + HPE servers).
 
 ## Conversation History
 
@@ -23,5 +23,5 @@ ZTP-Forge — Zero-touch provisioning for bare-metal infrastructure (Cisco netwo
 - Lint: `ruff check src/`
 - Type check: `mypy src/`
 - Tests: `pytest tests/`
-- Source layout: `src/ztp_forge/`
-- Dashboard: Django app at `src/ztp_forge/dashboard/`
+- Source layout: `src/bare_metal_automation/`
+- Dashboard: Django app at `src/bare_metal_automation/dashboard/`

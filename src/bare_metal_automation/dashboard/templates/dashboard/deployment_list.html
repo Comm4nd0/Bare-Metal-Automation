@@ -1,0 +1,51 @@
+{% extends "dashboard/base.html" %}
+{% block title %}Bare Metal Automation — Deployments{% endblock %}
+
+{% block content %}
+<h3 class="mb-4">Deployments</h3>
+
+{% if deployments %}
+<div class="table-responsive">
+    <table class="table table-hover">
+        <thead>
+            <tr>
+                <th>Name</th>
+                <th>Phase</th>
+                <th>Devices</th>
+                <th>Progress</th>
+                <th>Started</th>
+                <th>Last Updated</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for dep in deployments %}
+            <tr onclick="location.href='{% url 'deployment-detail' dep.pk %}'" style="cursor:pointer">
+                <td class="fw-bold">{{ dep.name }}</td>
+                <td>
+                    <span class="badge
+                        {% if dep.phase == 'complete' %}bg-success
+                        {% elif dep.phase == 'failed' %}bg-danger
+                        {% else %}bg-primary
+                        {% endif %}">
+                        {{ dep.phase_display }}
+                    </span>
+                </td>
+                <td>{{ dep.devices.count }}</td>
+                <td>
+                    <div class="progress" style="width: 100px; height: 6px;">
+                        <div class="progress-bar
+                            {% if dep.phase == 'failed' %}bg-danger{% elif dep.phase == 'complete' %}bg-success{% endif %}"
+                            style="width: {{ dep.phase_progress }}%"></div>
+                    </div>
+                </td>
+                <td class="text-secondary small">{{ dep.started_at|timesince }} ago</td>
+                <td class="text-secondary small">{{ dep.updated_at|timesince }} ago</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% else %}
+<p class="text-secondary">No deployments recorded yet.</p>
+{% endif %}
+{% endblock %}

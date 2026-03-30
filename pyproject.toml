@@ -3,7 +3,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "ztp-forge"
+name = "bare-metal-automation"
 version = "0.1.0"
 description = "Zero-Touch Provisioning for bare-metal infrastructure deployments"
 readme = "README.md"
@@ -26,6 +26,7 @@ dependencies = [
     "rich>=13.7",
     "pydantic>=2.5",
     "pyserial>=3.5",
+    "pynetbox>=7.3",
 ]
 
 [project.optional-dependencies]
@@ -39,10 +40,10 @@ dev = [
 ]
 
 [project.scripts]
-ztp-forge = "ztp_forge.cli:main"
+bare-metal-automation = "bare_metal_automation.cli:main"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/ztp_forge"]
+packages = ["src/bare_metal_automation"]
 
 [tool.ruff]
 target-version = "py311"

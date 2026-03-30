@@ -1,4 +1,4 @@
-# ZTP-Forge Example Inventory
+# Bare Metal Automation Example Inventory
 # Copy this to inventory.yaml and edit with your actual device serials and roles.
 
 deployment:
@@ -109,7 +109,7 @@ devices:
         dns_servers: ["192.168.100.10"]
         vlan_id: 100
       users:
-        - username: "ztpadmin"
+        - username: "bmaadmin"
           password: "ChangeMeOnFirstLogin!"
           ilo_config: true
           user_config: true
@@ -118,7 +118,7 @@ devices:
         servers: ["192.168.100.50"]
         propagate_to_host: true
       snmp:
-        community: "ztp-monitoring"
+        community: "bma-monitoring"
         trap_destinations: ["192.168.100.10"]
         system_contact: "datacenter-ops@example.com"
         system_location: "DC1-Rack42-U10"
@@ -220,11 +220,11 @@ devices:
         facility: "local0"
       snmp:
         enabled: true
-        community: "ztp-monitoring"
+        community: "bma-monitoring"
         trap_receivers: ["192.168.100.10"]
         system_contact: "datacenter-ops@example.com"
         system_location: "DC1-Rack42-U1"
     users:
-      - username: "ztpadmin"
+      - username: "bmaadmin"
         password: "ChangeMeOnFirstLogin!"
         role: "admin"

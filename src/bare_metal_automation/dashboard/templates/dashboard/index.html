@@ -1,0 +1,552 @@
+{% extends "dashboard/base.html" %}
+{% block title %}Bare Metal Automation — {{ deployment.name }}{% endblock %}
+
+{% block content %}
+<!-- Deployment Header -->
+<div class="row mb-4">
+    <div class="col">
+        <div class="d-flex align-items-center gap-3 flex-wrap">
+            <h3 class="mb-0">{{ deployment.name }}</h3>
+            <span class="badge phase-badge
+                {% if deployment.phase == 'complete' %}bg-success
+                {% elif deployment.phase == 'failed' or deployment.phase == 'rollback_failed' %}bg-danger
+                {% elif deployment.phase == 'stopped' %}bg-warning text-dark
+                {% elif deployment.phase == 'rollback_complete' %}bg-secondary
+                {% elif deployment.is_rollback %}bg-danger
+                {% else %}bg-primary
+                {% endif %}" id="phase-badge">
+                {{ deployment.phase_display }}
+            </span>
+            {% if simulation.running %}
+            <span class="badge bg-info" id="sim-badge">
+                <span class="sim-dot me-1" style="background:#fff;width:6px;height:6px;"></span>
+                Simulation
+            </span>
+            {% endif %}
+
+            <!-- Deployment / Rollback Control Buttons -->
+            <div class="ms-auto d-flex gap-2 align-items-center" id="deploy-controls">
+                {% if rollback_control.running %}
+                <button class="btn btn-sm btn-danger" onclick="stopRollback()">
+                    <i class="bi bi-stop-fill"></i> Stop Rollback
+                </button>
+                {% elif deployment_control.running %}
+                <button class="btn btn-sm btn-danger" onclick="stopDeployment()" id="btn-stop">
+                    <i class="bi bi-stop-fill"></i> Stop After Phase
+                </button>
+                {% elif rollback_control.checkpoint_exists %}
+                <button class="btn btn-sm btn-warning" onclick="resumeRollback()">
+                    <i class="bi bi-arrow-counterclockwise"></i> Resume Rollback
+                </button>
+                {% elif deployment_control.checkpoint_exists %}
+                <button class="btn btn-sm btn-warning" onclick="resumeDeployment()" id="btn-resume">
+                    <i class="bi bi-skip-forward-fill"></i> Resume
+                </button>
+                <button class="btn btn-sm btn-outline-success" onclick="startDeployment()" id="btn-start-fresh">
+                    <i class="bi bi-arrow-repeat"></i> Start Fresh
+                </button>
+                {% elif deployment.phase == 'complete' %}
+                <button class="btn btn-sm btn-outline-danger" onclick="showRollbackModal()">
+                    <i class="bi bi-arrow-counterclockwise"></i> Rollback to Factory
+                </button>
+                {% elif deployment.phase == 'rollback_complete' %}
+                <span class="text-secondary small">All devices at factory state</span>
+                {% else %}
+                <button class="btn btn-sm btn-success" onclick="startDeployment()" id="btn-start">
+                    <i class="bi bi-play-fill"></i> Start Deployment
+                </button>
+                {% endif %}
+                <span id="deploy-status" class="small text-secondary"></span>
+            </div>
+        </div>
+        <div class="text-secondary small mt-1">
+            Started {{ deployment.started_at|timesince }} ago
+            &middot; Last updated {{ deployment.updated_at|timesince }} ago
+        </div>
+    </div>
+</div>
+
+<!-- Phase Progress Bar -->
+<div class="row mb-4">
+    <div class="col">
+        <div class="card bg-body-secondary">
+            <div class="card-body py-3">
+                <div class="d-flex justify-content-between mb-2">
+                    <span class="small text-secondary">
+                        {% if deployment.is_rollback %}Rollback Progress{% else %}Deployment Progress{% endif %}
+                    </span>
+                    <span class="small fw-bold" id="progress-pct">{{ deployment.phase_progress }}%</span>
+                </div>
+                <div class="progress-phases">
+                    {% if deployment.is_rollback %}
+                    {% with phases="rollback_pre_flight,rollback_ntp_reset,rollback_server_reset,rollback_laptop_pivot,rollback_network_reset,rollback_final_check,rollback_complete" %}
+                    {% for phase in phases.split %}
+                        {% if deployment.phase == 'rollback_failed' %}
+                            <div class="phase-step failed" title="{{ phase }}"></div>
+                        {% elif phase == deployment.phase %}
+                            <div class="phase-step active" style="background: var(--bs-danger)" title="{{ phase }} (current)"></div>
+                        {% elif forloop.counter0 < deployment.phase_progress %}
+                            <div class="phase-step done" style="background: var(--bs-warning)" title="{{ phase }}"></div>
+                        {% else %}
+                            <div class="phase-step" title="{{ phase }}"></div>
+                        {% endif %}
+                    {% endfor %}
+                    {% endwith %}
+                    {% else %}
+                    {% with phases="pre_flight,discovery,topology,cabling_validation,heavy_transfers,network_config,laptop_pivot,server_provision,post_install,final_validation,complete" %}
+                    {% for phase in phases.split %}
+                        {% if deployment.phase == 'failed' %}
+                            <div class="phase-step failed" title="{{ phase }}"></div>
+                        {% elif phase == deployment.phase %}
+                            <div class="phase-step active" title="{{ phase }} (current)"></div>
+                        {% elif forloop.counter0 < deployment.phase_progress %}
+                            <div class="phase-step done" title="{{ phase }}"></div>
+                        {% else %}
+                            <div class="phase-step" title="{{ phase }}"></div>
+                        {% endif %}
+                    {% endfor %}
+                    {% endwith %}
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Summary Cards -->
+<div class="row g-3 mb-4">
+    <div class="col-md-3">
+        <div class="card bg-body-secondary h-100">
+            <div class="card-body text-center">
+                <div class="display-6 fw-bold">{{ devices|length }}</div>
+                <div class="text-secondary small">Total Devices</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card bg-body-secondary h-100">
+            <div class="card-body text-center">
+                {% with summary=deployment.device_summary %}
+                <div class="display-6 fw-bold text-success">{{ summary.configured }}</div>
+                <div class="text-secondary small">Configured</div>
+                {% endwith %}
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card bg-body-secondary h-100">
+            <div class="card-body text-center">
+                {% with summary=deployment.device_summary %}
+                <div class="display-6 fw-bold text-danger">{{ summary.failed }}</div>
+                <div class="text-secondary small">Failed</div>
+                {% endwith %}
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card bg-body-secondary h-100">
+            <div class="card-body text-center">
+                <div class="display-6 fw-bold text-info">{{ deployment.management_vlan }}</div>
+                <div class="text-secondary small">Mgmt VLAN</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Cabling Stats (if available) -->
+{% if cabling_stats %}
+<div class="row mb-4">
+    <div class="col">
+        <div class="card bg-body-secondary">
+            <div class="card-header">
+                <i class="bi bi-ethernet"></i> Cabling Validation Summary
+            </div>
+            <div class="card-body">
+                <div class="d-flex gap-4 flex-wrap">
+                    {% for label, count in cabling_stats.items %}
+                    <div>
+                        <span class="fw-bold">{{ count }}</span>
+                        <span class="text-secondary small">{{ label }}</span>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<div class="row g-4">
+    <!-- Device List -->
+    <div class="col-lg-8">
+        <h5 class="mb-3"><i class="bi bi-hdd-rack"></i> Devices</h5>
+        <div class="row g-3">
+            {% for device in devices %}
+            <div class="col-md-6">
+                <a href="{% url 'device-detail' device.pk %}" class="text-decoration-none">
+                    <div class="card device-card bg-body-secondary h-100">
+                        <div class="card-body">
+                            <div class="d-flex justify-content-between align-items-start">
+                                <div>
+                                    <h6 class="card-title mb-1">
+                                        <i class="bi bi-{{ device.role_icon }} me-1"></i>
+                                        {{ device }}
+                                    </h6>
+                                    <div class="text-secondary small">
+                                        {{ device.get_role_display|default:"Unknown Role" }}
+                                    </div>
+                                </div>
+                                <span class="badge bg-{{ device.state_css_class }}">
+                                    {{ device.get_state_display }}
+                                </span>
+                            </div>
+                            <div class="mt-2 small">
+                                <span class="text-secondary">IP:</span> {{ device.ip }}
+                                {% if device.serial %}
+                                &middot; <span class="text-secondary">SN:</span> {{ device.serial }}
+                                {% endif %}
+                                {% if device.bfs_depth is not None %}
+                                &middot; <span class="text-secondary">Depth:</span> {{ device.bfs_depth }}
+                                {% endif %}
+                            </div>
+                        </div>
+                    </div>
+                </a>
+            </div>
+            {% empty %}
+            <div class="col">
+                <p class="text-secondary">No devices discovered yet.</p>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+
+    <!-- Right Sidebar -->
+    <div class="col-lg-4">
+
+        <!-- Laptop Services -->
+        <h5 class="mb-3"><i class="bi bi-laptop"></i> Laptop Services</h5>
+        <div class="card bg-body-secondary mb-4">
+            <ul class="list-group list-group-flush" id="services-list">
+                <li class="list-group-item bg-transparent text-secondary small py-2">Checking...</li>
+            </ul>
+        </div>
+
+        <h5 class="mb-3"><i class="bi bi-terminal"></i> Activity Log</h5>
+        <div class="card bg-body-secondary">
+            <div class="card-body p-2" style="max-height: 500px; overflow-y: auto;" id="log-panel">
+                {% for log in logs %}
+                <div class="log-entry">
+                    <span class="badge bg-{{ log.level_css_class }} me-1" style="font-size:.7rem;">{{ log.level }}</span>
+                    {% if log.phase %}<span class="text-secondary">[{{ log.phase }}]</span> {% endif %}
+                    {{ log.message }}
+                </div>
+                {% empty %}
+                <p class="text-secondary small m-2">No log entries yet.</p>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Rollback Confirmation Modal -->
+<div class="modal fade" id="rollbackModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content bg-dark">
+            <div class="modal-header border-danger">
+                <h5 class="modal-title text-danger">
+                    <i class="bi bi-exclamation-triangle-fill me-2"></i>
+                    Rollback to Factory
+                </h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <p>This will <strong class="text-danger">erase ALL configuration</strong>
+                from <strong>ALL devices</strong> and reset them to factory state.</p>
+                <p class="text-warning small">
+                    <i class="bi bi-info-circle me-1"></i>
+                    Network devices will be wiped and reloaded.
+                    Servers will have BIOS reset, RAID deleted, and be powered off.
+                    NTP appliances will be factory reset.
+                </p>
+                <p class="mb-2">Type <strong>{{ deployment.name }}</strong> to confirm:</p>
+                <input type="text" class="form-control bg-body-secondary"
+                    id="rollback-confirm-input"
+                    placeholder="Type deployment name to confirm"
+                    oninput="checkRollbackConfirm()">
+            </div>
+            <div class="modal-footer border-secondary">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-danger" id="btn-confirm-rollback"
+                    disabled onclick="startRollback()">
+                    <i class="bi bi-arrow-counterclockwise me-1"></i> Reset All Devices
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+// Auto-refresh: reload page when phase changes or device states update
+(function() {
+    const STATUS_URL = "{% url 'api-status' %}";
+    const REFRESH_INTERVAL = 5000;
+    let lastPhase = "{{ deployment.phase }}";
+    let lastDeviceStates = "{{ devices|length }}";
+    let lastDeployRunning = {{ deployment_control.running|yesno:"true,false" }};
+    let lastRollbackRunning = {{ rollback_control.running|yesno:"true,false" }};
+
+    function refreshStatus() {
+        fetch(STATUS_URL)
+            .then(r => r.json())
+            .then(data => {
+                if (data.status === "no_deployment") return;
+
+                const newPhase = data.deployment.phase;
+                const newDeviceCount = data.devices ? data.devices.length : 0;
+
+                // Build a fingerprint of device states to detect changes
+                let stateFingerprint = "";
+                if (data.devices) {
+                    stateFingerprint = data.devices.map(d => d.state).join(",");
+                }
+
+                // Reload page if phase changed or device states changed
+                if (newPhase !== lastPhase || stateFingerprint !== lastDeviceStates) {
+                    lastPhase = newPhase;
+                    lastDeviceStates = stateFingerprint;
+                    location.reload();
+                    return;
+                }
+
+                // Update progress percentage without full reload
+                const pct = document.getElementById('progress-pct');
+                if (pct) pct.textContent = data.deployment.progress + '%';
+
+                // Reload if deployment or rollback running state changed
+                const newDeployRunning = data.deployment_control && data.deployment_control.running;
+                const newRollbackRunning = data.rollback_control && data.rollback_control.running;
+                if (newDeployRunning !== lastDeployRunning || newRollbackRunning !== lastRollbackRunning) {
+                    lastDeployRunning = newDeployRunning;
+                    lastRollbackRunning = newRollbackRunning;
+                    location.reload();
+                    return;
+                }
+
+                // Update simulation badge visibility
+                const simBadge = document.getElementById('sim-badge');
+                if (data.simulation) {
+                    if (simBadge && !data.simulation.running) {
+                        simBadge.style.display = 'none';
+                    }
+                }
+            })
+            .catch(() => {});
+    }
+
+    // Capture initial device states fingerprint
+    fetch(STATUS_URL)
+        .then(r => r.json())
+        .then(data => {
+            if (data.devices) {
+                lastDeviceStates = data.devices.map(d => d.state).join(",");
+            }
+        })
+        .catch(() => {});
+
+    setInterval(refreshStatus, REFRESH_INTERVAL);
+})();
+
+// Service status polling
+(function() {
+    const SERVICES_URL = "{% url 'api-services' %}";
+    const STATUS_COLOR = {
+        active:   { css: "success",   label: "active" },
+        inactive: { css: "secondary", label: "inactive" },
+        failed:   { css: "danger",    label: "failed" },
+        unknown:  { css: "secondary", label: "unknown" },
+    };
+
+    function renderServices(services) {
+        const list = document.getElementById('services-list');
+        if (!list) return;
+        list.innerHTML = services.map(s => {
+            const { css, label } = STATUS_COLOR[s.status] || STATUS_COLOR.unknown;
+            return `<li class="list-group-item bg-transparent d-flex justify-content-between align-items-center py-2">
+                <span>
+                    <i class="bi ${s.icon} me-2 text-secondary"></i>
+                    <span class="fw-semibold">${s.display_name}</span>
+                    <span class="text-secondary small ms-2">${s.detail}</span>
+                </span>
+                <span class="badge bg-${css}">${label}</span>
+            </li>`;
+        }).join('');
+    }
+
+    function fetchServices() {
+        fetch(SERVICES_URL)
+            .then(r => r.json())
+            .then(data => renderServices(data.services))
+            .catch(() => {});
+    }
+
+    fetchServices();
+    setInterval(fetchServices, 15000);
+})();
+
+// Deployment control actions
+function startDeployment() {
+    const status = document.getElementById('deploy-status');
+    status.textContent = 'Starting...';
+    fetch("{% url 'api-deployment-start' %}", {method: 'POST'})
+        .then(r => r.json())
+        .then(data => {
+            if (data.status === 'started') {
+                status.textContent = 'Deployment started';
+                status.className = 'small text-success';
+                setTimeout(() => location.reload(), 1500);
+            } else if (data.status === 'simulation_running') {
+                status.textContent = 'Stop simulation first';
+                status.className = 'small text-warning';
+            } else {
+                status.textContent = data.status;
+                status.className = 'small text-warning';
+            }
+        })
+        .catch(() => {
+            status.textContent = 'Failed to start';
+            status.className = 'small text-danger';
+        });
+}
+
+function stopDeployment() {
+    const status = document.getElementById('deploy-status');
+    status.textContent = 'Stopping after current phase...';
+    fetch("{% url 'api-deployment-stop' %}", {method: 'POST'})
+        .then(r => r.json())
+        .then(data => {
+            if (data.status === 'stopping') {
+                status.textContent = 'Will stop after current phase';
+                status.className = 'small text-warning';
+            } else {
+                status.textContent = data.status;
+                status.className = 'small text-secondary';
+            }
+        })
+        .catch(() => {
+            status.textContent = 'Failed to stop';
+            status.className = 'small text-danger';
+        });
+}
+
+function resumeDeployment() {
+    const status = document.getElementById('deploy-status');
+    status.textContent = 'Resuming...';
+    fetch("{% url 'api-deployment-resume' %}", {method: 'POST'})
+        .then(r => r.json())
+        .then(data => {
+            if (data.status === 'resumed') {
+                status.textContent = 'Deployment resumed';
+                status.className = 'small text-success';
+                setTimeout(() => location.reload(), 1500);
+            } else if (data.status === 'simulation_running') {
+                status.textContent = 'Stop simulation first';
+                status.className = 'small text-warning';
+            } else {
+                status.textContent = data.status;
+                status.className = 'small text-secondary';
+            }
+        })
+        .catch(() => {
+            status.textContent = 'Failed to resume';
+            status.className = 'small text-danger';
+        });
+}
+
+// Rollback control actions
+const DEPLOY_NAME = "{{ deployment.name }}";
+
+function showRollbackModal() {
+    const input = document.getElementById('rollback-confirm-input');
+    const btn = document.getElementById('btn-confirm-rollback');
+    if (input) input.value = '';
+    if (btn) btn.disabled = true;
+    new bootstrap.Modal(document.getElementById('rollbackModal')).show();
+}
+
+function checkRollbackConfirm() {
+    const input = document.getElementById('rollback-confirm-input');
+    const btn = document.getElementById('btn-confirm-rollback');
+    btn.disabled = (input.value !== DEPLOY_NAME);
+}
+
+function startRollback() {
+    const status = document.getElementById('deploy-status');
+    const modal = bootstrap.Modal.getInstance(document.getElementById('rollbackModal'));
+    if (modal) modal.hide();
+    status.textContent = 'Starting rollback...';
+    status.className = 'small text-warning';
+
+    fetch("{% url 'api-rollback-start' %}", {method: 'POST'})
+        .then(r => r.json())
+        .then(data => {
+            if (data.status === 'started') {
+                status.textContent = 'Rollback started';
+                status.className = 'small text-danger';
+                setTimeout(() => location.reload(), 1500);
+            } else {
+                status.textContent = data.status;
+                status.className = 'small text-warning';
+            }
+        })
+        .catch(() => {
+            status.textContent = 'Failed to start rollback';
+            status.className = 'small text-danger';
+        });
+}
+
+function stopRollback() {
+    const status = document.getElementById('deploy-status');
+    status.textContent = 'Stopping rollback...';
+    fetch("{% url 'api-rollback-stop' %}", {method: 'POST'})
+        .then(r => r.json())
+        .then(data => {
+            if (data.status === 'stopping') {
+                status.textContent = 'Will stop after current phase';
+                status.className = 'small text-warning';
+            } else {
+                status.textContent = data.status;
+                status.className = 'small text-secondary';
+            }
+        })
+        .catch(() => {
+            status.textContent = 'Failed to stop';
+            status.className = 'small text-danger';
+        });
+}
+
+function resumeRollback() {
+    const status = document.getElementById('deploy-status');
+    status.textContent = 'Resuming rollback...';
+    fetch("{% url 'api-rollback-resume' %}", {method: 'POST'})
+        .then(r => r.json())
+        .then(data => {
+            if (data.status === 'resumed') {
+                status.textContent = 'Rollback resumed';
+                status.className = 'small text-danger';
+                setTimeout(() => location.reload(), 1500);
+            } else {
+                status.textContent = data.status;
+                status.className = 'small text-secondary';
+            }
+        })
+        .catch(() => {
+            status.textContent = 'Failed to resume';
+            status.className = 'small text-danger';
+        });
+}
+</script>
+{% endblock %}
