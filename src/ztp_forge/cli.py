@@ -196,6 +196,32 @@ def clear_checkpoint(checkpoint: str) -> None:
 
 
 @main.command()
+@click.option(
+    "--name", "-n",
+    default="SIM-Rack-Demo",
+    help="Name for the simulated deployment.",
+)
+def simulate(name: str) -> None:
+    """Run a simulated deployment through all phases (no hardware required)."""
+    import os
+
+    os.environ.setdefault("DJANGO_SETTINGS_MODULE", "ztp_forge.dashboard.settings")
+
+    import django
+    django.setup()
+
+    from django.core.management import call_command
+
+    call_command("migrate", "--run-syncdb", verbosity=0)
+
+    console.print("[bold blue]ZTP-Forge[/] — Simulation Mode")
+    console.print(f"Running simulated deployment: [bold]{name}[/]")
+    console.print("Press Ctrl+C to stop.\n")
+
+    call_command("run_simulation", name=name)
+
+
+@main.command()
 @click.option("--host", default="0.0.0.0", help="Dashboard bind address.")
 @click.option("--port", default=8080, help="Dashboard port.")
 @click.option("--mock", is_flag=True, help="Populate mock devices for testing.")

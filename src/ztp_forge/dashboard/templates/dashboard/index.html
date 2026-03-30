@@ -11,9 +11,15 @@
                 {% if deployment.phase == 'complete' %}bg-success
                 {% elif deployment.phase == 'failed' %}bg-danger
                 {% else %}bg-primary
-                {% endif %}">
+                {% endif %}" id="phase-badge">
                 {{ deployment.phase_display }}
             </span>
+            {% if simulation.running %}
+            <span class="badge bg-info" id="sim-badge">
+                <span class="sim-dot me-1" style="background:#fff;width:6px;height:6px;"></span>
+                Simulation
+            </span>
+            {% endif %}
         </div>
         <div class="text-secondary small mt-1">
             Started {{ deployment.started_at|timesince }} ago
@@ -29,7 +35,7 @@
             <div class="card-body py-3">
                 <div class="d-flex justify-content-between mb-2">
                     <span class="small text-secondary">Deployment Progress</span>
-                    <span class="small fw-bold">{{ deployment.phase_progress }}%</span>
+                    <span class="small fw-bold" id="progress-pct">{{ deployment.phase_progress }}%</span>
                 </div>
                 <div class="progress-phases">
                     {% with phases="pre_flight,discovery,topology,cabling_validation,heavy_transfers,network_config,laptop_pivot,server_provision,post_install,final_validation,complete" %}
@@ -182,24 +188,60 @@
 
 {% block extra_js %}
 <script>
-// Auto-refresh dashboard every 5 seconds
+// Auto-refresh: reload page when phase changes or device states update
 (function() {
     const STATUS_URL = "{% url 'api-status' %}";
     const REFRESH_INTERVAL = 5000;
+    let lastPhase = "{{ deployment.phase }}";
+    let lastDeviceStates = "{{ devices|length }}";
 
     function refreshStatus() {
         fetch(STATUS_URL)
             .then(r => r.json())
             .then(data => {
                 if (data.status === "no_deployment") return;
-                // Update phase badge
-                const badge = document.querySelector('.phase-badge');
-                if (badge) badge.textContent = data.deployment.phase_display;
-                // Update progress
-                const pct = document.querySelector('.progress-phases + .small.fw-bold, .fw-bold');
+
+                const newPhase = data.deployment.phase;
+                const newDeviceCount = data.devices ? data.devices.length : 0;
+
+                // Build a fingerprint of device states to detect changes
+                let stateFingerprint = "";
+                if (data.devices) {
+                    stateFingerprint = data.devices.map(d => d.state).join(",");
+                }
+
+                // Reload page if phase changed or device states changed
+                if (newPhase !== lastPhase || stateFingerprint !== lastDeviceStates) {
+                    lastPhase = newPhase;
+                    lastDeviceStates = stateFingerprint;
+                    location.reload();
+                    return;
+                }
+
+                // Update progress percentage without full reload
+                const pct = document.getElementById('progress-pct');
+                if (pct) pct.textContent = data.deployment.progress + '%';
+
+                // Update simulation badge visibility
+                const simBadge = document.getElementById('sim-badge');
+                if (data.simulation) {
+                    if (simBadge && !data.simulation.running) {
+                        simBadge.style.display = 'none';
+                    }
+                }
             })
             .catch(() => {});
     }
+
+    // Capture initial device states fingerprint
+    fetch(STATUS_URL)
+        .then(r => r.json())
+        .then(data => {
+            if (data.devices) {
+                lastDeviceStates = data.devices.map(d => d.state).join(",");
+            }
+        })
+        .catch(() => {});
 
     setInterval(refreshStatus, REFRESH_INTERVAL);
 })();

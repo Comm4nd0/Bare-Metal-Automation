@@ -46,6 +46,8 @@ class DeviceState(str, Enum):
     SPP_INSTALLED = "spp_installed"
     OS_INSTALLING = "os_installing"
     OS_INSTALLED = "os_installed"
+    OS_CONFIGURING = "os_configuring"
+    OS_CONFIGURED = "os_configured"
     ILO_CONFIGURING = "ilo_configuring"
     ILO_CONFIGURED = "ilo_configured"
     PROVISIONING = "provisioning"
