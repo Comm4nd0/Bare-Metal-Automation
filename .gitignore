@@ -5,7 +5,11 @@ __pycache__/
 dist/
 build/
 .venv/
+.venv-wsl/
 venv/
+
+# Claude Code
+.claude/
 
 # IDE
 .vscode/
@@ -29,7 +33,8 @@ logs/
 
 # State files
 .deployment-state.json
-.ztp-checkpoint.json
+.bma-checkpoint.json
+.bma-rollback-checkpoint.json
 
 # Coverage
 .coverage

@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from ztp_forge.models import (
+from bare_metal_automation.models import (
     DeploymentInventory,
     DevicePlatform,
     DeviceRole,
@@ -83,7 +83,7 @@ def _make_device(
 
 class TestNetworkResetter:
     def test_reset_device_success(self, inventory: DeploymentInventory) -> None:
-        from ztp_forge.resetter.network import NetworkResetter
+        from bare_metal_automation.resetter.network import NetworkResetter
 
         device = _make_device("10.255.0.10", "FOC2145X0AB", "core-sw-01")
         resetter = NetworkResetter(inventory=inventory)
@@ -105,7 +105,7 @@ class TestNetworkResetter:
     def test_reset_device_connection_failure(
         self, inventory: DeploymentInventory
     ) -> None:
-        from ztp_forge.resetter.network import NetworkResetter
+        from bare_metal_automation.resetter.network import NetworkResetter
 
         device = _make_device("10.255.0.10", "FOC2145X0AB", "core-sw-01")
         resetter = NetworkResetter(inventory=inventory)
@@ -119,7 +119,7 @@ class TestNetworkResetter:
     def test_reset_device_exception(
         self, inventory: DeploymentInventory
     ) -> None:
-        from ztp_forge.resetter.network import NetworkResetter
+        from bare_metal_automation.resetter.network import NetworkResetter
 
         device = _make_device("10.255.0.10", "FOC2145X0AB", "core-sw-01")
         resetter = NetworkResetter(inventory=inventory)
@@ -136,7 +136,7 @@ class TestNetworkResetter:
     def test_connect_tries_production_creds_first(
         self, inventory: DeploymentInventory
     ) -> None:
-        from ztp_forge.resetter.network import NetworkResetter
+        from bare_metal_automation.resetter.network import NetworkResetter
 
         device = _make_device("10.255.0.10", "FOC2145X0AB", "core-sw-01")
         resetter = NetworkResetter(inventory=inventory)
@@ -154,7 +154,7 @@ class TestNetworkResetter:
     def test_connect_falls_back_to_factory_defaults(
         self, inventory: DeploymentInventory
     ) -> None:
-        from ztp_forge.resetter.network import NetworkResetter
+        from bare_metal_automation.resetter.network import NetworkResetter
 
         # Use device without production creds in inventory
         device = _make_device("10.255.0.11", "FOC2145X0CD", "access-sw-01")
@@ -179,7 +179,7 @@ class TestNetworkResetter:
         self, inventory: DeploymentInventory
     ) -> None:
         """Verify reload handles 'save config?' prompt with 'no'."""
-        from ztp_forge.resetter.network import NetworkResetter
+        from bare_metal_automation.resetter.network import NetworkResetter
 
         device = _make_device("10.255.0.10", "FOC2145X0AB", "core-sw-01")
         resetter = NetworkResetter(inventory=inventory)
@@ -212,7 +212,7 @@ class TestHPEServerResetter:
     def test_reset_server_success(
         self, inventory: DeploymentInventory
     ) -> None:
-        from ztp_forge.resetter.server import HPEServerResetter
+        from bare_metal_automation.resetter.server import HPEServerResetter
 
         device = _make_device(
             "10.255.0.20",
@@ -243,7 +243,7 @@ class TestHPEServerResetter:
     def test_reset_server_bios_failure(
         self, inventory: DeploymentInventory
     ) -> None:
-        from ztp_forge.resetter.server import HPEServerResetter
+        from bare_metal_automation.resetter.server import HPEServerResetter
 
         device = _make_device(
             "10.255.0.20",
@@ -269,7 +269,7 @@ class TestHPEServerResetter:
     def test_reset_server_connection_failure(
         self, inventory: DeploymentInventory
     ) -> None:
-        from ztp_forge.resetter.server import HPEServerResetter
+        from bare_metal_automation.resetter.server import HPEServerResetter
 
         device = _make_device(
             "10.255.0.20",
@@ -289,12 +289,12 @@ class TestHPEServerResetter:
     def test_connect_tries_production_then_factory(
         self, inventory: DeploymentInventory
     ) -> None:
-        from ztp_forge.resetter.server import HPEServerResetter
+        from bare_metal_automation.resetter.server import HPEServerResetter
 
         resetter = HPEServerResetter(inventory=inventory)
         spec = inventory.get_device_spec("CZ12345678")
 
-        with patch("ztp_forge.resetter.server.RedfishClient") as mock_cls:
+        with patch("bare_metal_automation.resetter.server.RedfishClient") as mock_cls:
             mock_client = MagicMock()
             mock_cls.return_value = mock_client
             client = resetter._connect("10.255.0.20", spec)
@@ -307,7 +307,7 @@ class TestHPEServerResetter:
     def test_reset_bios_calls_correct_api(
         self, inventory: DeploymentInventory
     ) -> None:
-        from ztp_forge.resetter.server import HPEServerResetter
+        from bare_metal_automation.resetter.server import HPEServerResetter
 
         resetter = HPEServerResetter(inventory=inventory)
         mock_client = MagicMock()
@@ -322,7 +322,7 @@ class TestHPEServerResetter:
     def test_clear_raid_deletes_logical_drives(
         self, inventory: DeploymentInventory
     ) -> None:
-        from ztp_forge.resetter.server import HPEServerResetter
+        from bare_metal_automation.resetter.server import HPEServerResetter
 
         resetter = HPEServerResetter(inventory=inventory)
         mock_client = MagicMock()
@@ -349,7 +349,7 @@ class TestMeinbergResetter:
     def test_reset_device_success(
         self, inventory: DeploymentInventory
     ) -> None:
-        from ztp_forge.resetter.meinberg import MeinbergResetter
+        from bare_metal_automation.resetter.meinberg import MeinbergResetter
 
         device = _make_device(
             "10.255.0.30",
@@ -383,7 +383,7 @@ class TestMeinbergResetter:
     def test_reset_device_connection_failure(
         self, inventory: DeploymentInventory
     ) -> None:
-        from ztp_forge.resetter.meinberg import MeinbergResetter
+        from bare_metal_automation.resetter.meinberg import MeinbergResetter
 
         device = _make_device(
             "10.255.0.30",
@@ -403,7 +403,7 @@ class TestMeinbergResetter:
     def test_reset_device_reboot_timeout(
         self, inventory: DeploymentInventory
     ) -> None:
-        from ztp_forge.resetter.meinberg import MeinbergResetter
+        from bare_metal_automation.resetter.meinberg import MeinbergResetter
 
         device = _make_device(
             "10.255.0.30",
@@ -422,7 +422,7 @@ class TestMeinbergResetter:
         with (
             patch.object(resetter, "_connect", return_value=mock_session),
             patch.object(resetter, "_wait_for_device", return_value=False),
-            patch("ztp_forge.resetter.meinberg.time.sleep"),
+            patch("bare_metal_automation.resetter.meinberg.time.sleep"),
         ):
             result = resetter.reset_device(device)
 
@@ -436,7 +436,7 @@ class TestMeinbergResetter:
 class TestResetOrdering:
     def test_ascending_depth_sort(self) -> None:
         """Verify inside-out ordering: shallowest depth first."""
-        from ztp_forge.common.parallel import group_devices_by_depth
+        from bare_metal_automation.common.parallel import group_devices_by_depth
 
         devices = [
             _make_device("10.0.0.1", "S1", "core", bfs_depth=1),
@@ -450,7 +450,7 @@ class TestResetOrdering:
 
     def test_descending_depth_sort_default(self) -> None:
         """Verify default ordering: deepest depth first (outside-in)."""
-        from ztp_forge.common.parallel import group_devices_by_depth
+        from bare_metal_automation.common.parallel import group_devices_by_depth
 
         devices = [
             _make_device("10.0.0.1", "S1", "core", bfs_depth=1),
@@ -474,5 +474,5 @@ class TestResetStates:
         assert DeviceState.RESET_COMPLETE == "reset_complete"
 
     def test_factory_reset_phase_exists(self) -> None:
-        from ztp_forge.models import DeploymentPhase
+        from bare_metal_automation.models import DeploymentPhase
         assert DeploymentPhase.FACTORY_RESET == "factory_reset"

@@ -8,14 +8,14 @@ from unittest.mock import patch
 
 import pytest
 
-from ztp_forge.common.checkpoint import (
+from bare_metal_automation.common.checkpoint import (
     deserialize_state,
     load_checkpoint,
     remove_checkpoint,
     save_checkpoint,
     serialize_state,
 )
-from ztp_forge.models import (
+from bare_metal_automation.models import (
     CDPNeighbour,
     CablingResult,
     DeploymentPhase,
@@ -25,7 +25,7 @@ from ztp_forge.models import (
     DeviceState,
     DiscoveredDevice,
 )
-from ztp_forge.orchestrator import PHASE_ORDER, Orchestrator
+from bare_metal_automation.orchestrator import PHASE_ORDER, Orchestrator
 
 
 # ── Fixtures ───────────────────────────────────────────────────────────────

@@ -1,12 +1,12 @@
-# ZTP-Forge
+# Bare Metal Automation
 
 **Zero-Touch Provisioning for bare-metal infrastructure deployments.**
 
-ZTP-Forge automates the complete lifecycle from factory-new hardware to fully configured production infrastructure — triggered by a single button on a deployment dashboard.
+Bare Metal Automation automates the complete lifecycle from factory-new hardware to fully configured production infrastructure — triggered by a single button on a deployment dashboard.
 
 ## What It Does
 
-A deployment laptop running ZTP-Forge connects to a rack of factory-new Cisco switches, routers, firewalls, and HPE servers. With no out-of-band management network, the system:
+A deployment laptop running Bare Metal Automation connects to a rack of factory-new Cisco switches, routers, firewalls, and HPE servers. With no out-of-band management network, the system:
 
 1. **Discovers** all devices via DHCP and CDP/LLDP on the factory-default flat network
 2. **Identifies** each device by serial number and matches it to its intended role
@@ -20,7 +20,7 @@ A deployment laptop running ZTP-Forge connects to a rack of factory-new Cisco sw
 
 ```
 ┌─────────────────────────────────────────────────────┐
-│                  ZTP-Forge Dashboard                 │
+│                  Bare Metal Automation Dashboard                 │
 │         (Flask + WebSocket live status)              │
 ├─────────────────────────────────────────────────────┤
 │                   Orchestrator                       │
@@ -56,8 +56,8 @@ A deployment laptop running ZTP-Forge connects to a rack of factory-new Cisco sw
 
 ```bash
 # Clone and install
-git clone https://github.com/<your-org>/ztp-forge.git
-cd ztp-forge
+git clone https://github.com/<your-org>/bare-metal-automation.git
+cd bare-metal-automation
 python -m venv .venv
 source .venv/bin/activate
 pip install -e ".[dev]"
@@ -71,16 +71,16 @@ cp configs/inventory/inventory.example.yaml configs/inventory/inventory.yaml
 # Copy OS ISOs to configs/firmware/
 
 # Start the dashboard
-ztp-forge serve
+bare-metal-automation serve
 
 # Or run headless
-ztp-forge deploy --inventory configs/inventory/inventory.yaml
+bare-metal-automation deploy --inventory configs/inventory/inventory.yaml
 ```
 
 ## Project Structure
 
 ```
-ztp-forge/
+bare-metal-automation/
 ├── src/
 │   ├── common/           # Shared utilities, logging, config
 │   ├── discovery/         # DHCP server, CDP/LLDP collection, device identification
@@ -192,7 +192,7 @@ ruff check src/
 mypy src/
 
 # Run with mock devices (no real hardware needed)
-ztp-forge serve --mock
+bare-metal-automation serve --mock
 ```
 
 ## Roadmap

@@ -1,4 +1,4 @@
-# ZTP-Forge Development Roadmap
+# Bare Metal Automation Development Roadmap
 
 ## Milestone 1 — Foundation (MVP)
 
@@ -14,12 +14,12 @@ The goal is a working CLI that can discover devices on a flat network and build 
 - [ ] **Device matcher** — Match discovered serials to inventory roles
 - [ ] **Topology graph builder** — Build NetworkX graph from CDP data
 - [ ] **BFS ordering** — Calculate configuration order from graph
-- [ ] **CLI entry point** — `ztp-forge discover` command
+- [ ] **CLI entry point** — `bare-metal-automation discover` command
 - [ ] **Mock device simulator** — Fake SSH responder for testing without hardware
 - [ ] **Unit tests** for all parsers
 
 ### Definition of Done
-Running `ztp-forge discover` against a rack of factory-new kit produces a JSON topology map with each device identified by serial, role, depth, and neighbours.
+Running `bare-metal-automation discover` against a rack of factory-new kit produces a JSON topology map with each device identified by serial, role, depth, and neighbours.
 
 ---
 
@@ -31,11 +31,11 @@ Running `ztp-forge discover` against a rack of factory-new kit produces a JSON t
 - [ ] **Cabling diff engine** — Compare CDP actual vs template intent
 - [ ] **Adaptation engine** — For flexible ports (server access ports), generate modified configs matching actual cabling
 - [ ] **Validation report** — Structured output: correct / adaptable / mismatched / missing / unexpected
-- [ ] **CLI command** — `ztp-forge validate`
+- [ ] **CLI command** — `bare-metal-automation validate`
 - [ ] **Unit tests** for intent parsing and diff logic
 
 ### Definition of Done
-Running `ztp-forge validate` produces a clear report showing every connection that matches, mismatches, or is missing, with suggested adaptations for flexible ports.
+Running `bare-metal-automation validate` produces a clear report showing every connection that matches, mismatches, or is missing, with suggested adaptations for flexible ports.
 
 ---
 
@@ -50,11 +50,11 @@ Running `ztp-forge validate` produces a clear report showing every connection th
 - [ ] **Rollback handler** — Detect failed validation, trigger rollback
 - [ ] **Outside-in orchestrator** — Execute config push in BFS reverse order
 - [ ] **Post-config validation** — Per-device health checks (STP root, trunk status, routing adjacency)
-- [ ] **CLI command** — `ztp-forge configure-network`
+- [ ] **CLI command** — `bare-metal-automation configure-network`
 - [ ] **Integration tests** with mock devices
 
 ### Definition of Done
-Running `ztp-forge configure-network` configures all network devices in the correct order with rollback protection, and all post-config validations pass.
+Running `bare-metal-automation configure-network` configures all network devices in the correct order with rollback protection, and all post-config validations pass.
 
 ---
 
@@ -70,10 +70,10 @@ Running `ztp-forge configure-network` configures all network devices in the corr
 - [ ] **Install monitor** — Poll Redfish for OS install progress
 - [ ] **PXE fallback** — TFTP/PXE boot for cases where virtual media isn't suitable
 - [ ] **Post-install Ansible** — OS hardening, packages, agents, domain join
-- [ ] **CLI command** — `ztp-forge provision-servers`
+- [ ] **CLI command** — `bare-metal-automation provision-servers`
 
 ### Definition of Done
-Running `ztp-forge provision-servers` takes factory-new DL325s through to a hardened, domain-joined OS with monitoring agents running.
+Running `bare-metal-automation provision-servers` takes factory-new DL325s through to a hardened, domain-joined OS with monitoring agents running.
 
 ---
 
@@ -109,7 +109,7 @@ A user can open the dashboard in a browser, see the discovered topology, review 
 - [ ] **Config drift detection** — Post-deployment periodic validation
 
 ### Definition of Done
-ZTP-Forge can handle real-world failure scenarios gracefully — devices that don't respond, partial deployments, laptop reboots mid-deploy — and recover without manual intervention.
+Bare Metal Automation can handle real-world failure scenarios gracefully — devices that don't respond, partial deployments, laptop reboots mid-deploy — and recover without manual intervention.
 
 ---
 
