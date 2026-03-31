@@ -27,6 +27,8 @@ dependencies = [
     "pydantic>=2.5",
     "pyserial>=3.5",
     "pynetbox>=7.3",
+    "tabulate>=0.9",
+    "semver>=3.0",
 ]
 
 [project.optional-dependencies]
@@ -40,10 +42,14 @@ dev = [
 ]
 
 [project.scripts]
-bare-metal-automation = "bare_metal_automation.cli:main"
+bare-metal-automation   = "bare_metal_automation.cli:main"
+bma-site-generate       = "orchestrator.site_generate:main"
+bma-site-regenerate     = "orchestrator.site_regenerate:main"
+bma-fleet-scan          = "orchestrator.fleet_scan:main"
+bma-orchestrate         = "orchestrator.orchestrate:main"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/bare_metal_automation"]
+packages = ["src/bare_metal_automation", "orchestrator"]
 
 [tool.ruff]
 target-version = "py311"

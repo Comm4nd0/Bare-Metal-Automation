@@ -1,0 +1,38 @@
+# Bare Metal Automation — pinned runtime requirements
+# Generated from pyproject.toml for environments that prefer pip -r installs.
+# Update versions here and in pyproject.toml together.
+
+# ── CLI / config ──────────────────────────────────────────────────────────────
+click>=8.1
+pyyaml>=6.0
+jinja2>=3.1
+rich>=13.7
+pydantic>=2.5
+
+# ── Network automation ────────────────────────────────────────────────────────
+netmiko>=4.3
+paramiko>=3.4
+networkx>=3.2
+requests>=2.31
+pyserial>=3.5
+
+# ── NetBox / orchestrator ─────────────────────────────────────────────────────
+pynetbox>=7.3
+
+# ── Ansible ───────────────────────────────────────────────────────────────────
+ansible-runner>=2.3
+
+# ── Dashboard ─────────────────────────────────────────────────────────────────
+django>=5.0
+
+# ── Utilities ─────────────────────────────────────────────────────────────────
+tabulate>=0.9
+semver>=3.0
+
+# ── Development extras (not installed in production) ─────────────────────────
+# pytest>=7.4
+# pytest-cov>=4.1
+# pytest-asyncio>=0.23
+# ruff>=0.3
+# mypy>=1.8
+# pre-commit>=3.6
