@@ -14,6 +14,7 @@ logger = logging.getLogger(__name__)
 
 def group_devices_by_depth(
     devices: list[DiscoveredDevice],
+    ascending: bool = False,
 ) -> list[list[DiscoveredDevice]]:
     """Group devices by BFS depth for parallel execution.
 
@@ -31,8 +32,8 @@ def group_devices_by_depth(
         else:
             no_depth.append(device)
 
-    # Sort depths descending (outside-in: furthest devices first)
-    sorted_depths = sorted(by_depth.keys(), reverse=True)
+    # Sort depths: descending for provisioning (outside-in), ascending for reset (inside-out)
+    sorted_depths = sorted(by_depth.keys(), reverse=not ascending)
     groups = [by_depth[d] for d in sorted_depths]
 
     # Devices with no depth go last (likely servers/NTP not in the graph)
@@ -131,6 +132,59 @@ def _run_group_parallel(
                     f"Unhandled exception: {e}"
                 )
                 results[key] = False
+
+    return results
+
+
+def run_parallel_by_depth_ascending(
+    devices: list[DiscoveredDevice],
+    operation: Callable[[DiscoveredDevice], bool],
+    max_workers: int = 4,
+    stop_on_failure: bool = False,
+) -> dict[str, bool]:
+    """Execute an operation on devices grouped by BFS depth, shallowest first.
+
+    This is the reverse of ``run_parallel_by_depth`` — devices closest to
+    the laptop (lowest depth) are processed first.  Use this for factory
+    reset operations where inside-out ordering is required: reset leaf
+    devices first so the management path stays intact until the last device.
+    """
+    groups = group_devices_by_depth(devices, ascending=True)
+    results: dict[str, bool] = {}
+
+    for group in groups:
+        if not group:
+            continue
+
+        depth = group[0].bfs_depth
+        depth_label = f"depth {depth}" if depth is not None else "unordered"
+        serials = [d.serial or d.ip for d in group]
+
+        if len(group) == 1:
+            logger.info(f"Processing {serials[0]} ({depth_label})")
+            results[group[0].serial or group[0].ip] = operation(group[0])
+        else:
+            logger.info(
+                f"Processing {len(group)} devices in parallel "
+                f"({depth_label}): {serials}"
+            )
+            group_results = _run_group_parallel(
+                group, operation, max_workers
+            )
+            results.update(group_results)
+
+        # Check for failures in this depth group
+        group_failures = [
+            d.serial or d.ip
+            for d in group
+            if not results.get(d.serial or d.ip, False)
+        ]
+        if group_failures and stop_on_failure:
+            logger.error(
+                f"Stopping: {len(group_failures)} device(s) failed at "
+                f"{depth_label}: {group_failures}"
+            )
+            break
 
     return results
 

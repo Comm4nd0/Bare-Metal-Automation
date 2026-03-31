@@ -345,6 +345,24 @@ Bare Metal Automation is a zero-touch provisioning tool for bare-metal infrastru
 - Operator flow: Prepare Build → Start Deployment → Rollback — all from dashboard buttons
 - Quad mutual exclusion: prepare, deployment, simulation, rollback cannot run simultaneously
 
+### Session 11 — Factory Reset Automation (standalone resetter module)
+
+**Date**: 2026-03-30
+**Branch**: `claude/factory-reset-automation-dyjGO`
+
+**What was done**:
+- Created `resetter/` module with three device-type-specific resetters:
+  - `resetter/network.py` — Cisco network device factory reset via SSH (`write erase` + `reload`)
+  - `resetter/server.py` — HPE server factory reset via Redfish/iLO 5
+  - `resetter/meinberg.py` — Meinberg NTP factory reset via REST API
+- Updated `common/parallel.py` with ascending depth ordering for reset operations
+- Updated `orchestrator.py` with `run_factory_reset()` method
+- Updated `cli.py` with `factory-reset` command
+- Added `RESETTING`, `RESET_COMPLETE` device states and `FACTORY_RESET` phase
+- Created `tests/unit/test_resetter.py` with 20 tests
+
+**Note**: Session 9 (Rollback to Factory) on main implemented a more complete version of this functionality with dashboard integration, checkpoint/resume, and simulation support. This PR's `resetter/` module overlaps with `rollback/` — needs reconciliation.
+
 ---
 
 ## Current State of the Project

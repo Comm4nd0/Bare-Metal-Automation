@@ -53,6 +53,7 @@ class DeviceState(str, Enum):
     PROVISIONING = "provisioning"
     PROVISIONED = "provisioned"
     RESETTING = "resetting"
+    RESET_COMPLETE = "reset_complete"
     FACTORY_RESET = "factory_reset"
     POWERED_OFF = "powered_off"
     FAILED = "failed"
@@ -71,6 +72,7 @@ class DeploymentPhase(str, Enum):
     NTP_PROVISION = "ntp_provision"
     POST_INSTALL = "post_install"
     FINAL_VALIDATION = "final_validation"
+    FACTORY_RESET = "factory_reset"
     COMPLETE = "complete"
     FAILED = "failed"
 

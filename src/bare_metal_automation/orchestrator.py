@@ -41,6 +41,7 @@ PHASE_ORDER: list[DeploymentPhase] = [
     DeploymentPhase.NTP_PROVISION,
     DeploymentPhase.POST_INSTALL,
     DeploymentPhase.FINAL_VALIDATION,
+    DeploymentPhase.FACTORY_RESET,
     DeploymentPhase.COMPLETE,
 ]
 
@@ -526,6 +527,195 @@ class Orchestrator:
                 )
 
         return self.state
+
+    def run_factory_reset(
+        self,
+        dry_run: bool = False,
+        device_types: str = "all",
+    ) -> DeploymentState:
+        """Factory-reset infrastructure back to a ZTP-ready state.
+
+        Resets devices in an order that preserves management connectivity:
+        1. Meinberg NTP devices (parallel — leaf devices)
+        2. HPE servers (parallel — independent via iLO)
+        3. Cisco network devices (inside-out by ascending BFS depth)
+
+        Args:
+            dry_run: Show what would be reset without executing.
+            device_types: Filter: "all", "cisco", "hpe", or "meinberg".
+        """
+        self.inventory = self._load_inventory()
+        self.state.phase = DeploymentPhase.FACTORY_RESET
+
+        console.print("\n[bold red]Factory Reset — returning infrastructure to ZTP-ready state[/]")
+
+        # Discovery and topology are needed for device IPs and ordering
+        self.run_discovery()
+        self.run_topology()
+
+        reset_cisco = device_types in ("all", "cisco")
+        reset_hpe = device_types in ("all", "hpe")
+        reset_meinberg = device_types in ("all", "meinberg")
+
+        errors: list[str] = []
+
+        # ── Phase 1: Meinberg NTP ─────────────────────────────────────
+        if reset_meinberg:
+            ntp_devices = self._get_devices_by_platform("meinberg_lantime")
+            if ntp_devices:
+                if dry_run:
+                    for d in ntp_devices:
+                        console.print(
+                            f"  [yellow]DRY RUN — would reset "
+                            f"{d.intended_hostname or d.ip}[/]"
+                        )
+                else:
+                    ntp_errors = self._reset_meinberg_devices(ntp_devices)
+                    errors.extend(ntp_errors)
+            else:
+                console.print("  [dim]No Meinberg NTP devices to reset[/]")
+
+        # ── Phase 2: HPE servers ──────────────────────────────────────
+        if reset_hpe:
+            servers = self._get_devices_by_platform_prefix("hpe_")
+            if servers:
+                if dry_run:
+                    for d in servers:
+                        console.print(
+                            f"  [yellow]DRY RUN — would reset "
+                            f"{d.intended_hostname or d.ip}[/]"
+                        )
+                else:
+                    server_errors = self._reset_hpe_servers(servers)
+                    errors.extend(server_errors)
+            else:
+                console.print("  [dim]No HPE servers to reset[/]")
+
+        # ── Phase 3: Cisco network devices (inside-out) ───────────────
+        if reset_cisco:
+            network_devices = self._get_network_devices()
+            if network_devices:
+                if dry_run:
+                    # Show in inside-out order (ascending depth)
+                    sorted_devs = sorted(
+                        network_devices,
+                        key=lambda d: d.bfs_depth if d.bfs_depth is not None else 999,
+                    )
+                    for d in sorted_devs:
+                        console.print(
+                            f"  [yellow]DRY RUN — would reset "
+                            f"{d.intended_hostname or d.ip} "
+                            f"(depth {d.bfs_depth})[/]"
+                        )
+                else:
+                    cisco_errors = self._reset_network_devices(network_devices)
+                    errors.extend(cisco_errors)
+            else:
+                console.print("  [dim]No Cisco network devices to reset[/]")
+
+        # ── Summary ───────────────────────────────────────────────────
+        self.state.errors.extend(errors)
+
+        if errors:
+            console.print(f"\n[bold red]Factory reset completed with {len(errors)} error(s):[/]")
+            for err in errors:
+                console.print(f"  [red]— {err}[/]")
+            self.state.phase = DeploymentPhase.FAILED
+        elif dry_run:
+            console.print("\n[bold yellow]DRY RUN complete — no changes made.[/]")
+        else:
+            console.print(
+                "\n[bold green]Factory reset complete "
+                "— all devices returned to defaults.[/]"
+            )
+            self.state.phase = DeploymentPhase.COMPLETE
+
+        return self.state
+
+    def _reset_meinberg_devices(
+        self, devices: list[DiscoveredDevice]
+    ) -> list[str]:
+        """Reset Meinberg NTP devices in parallel."""
+        from bare_metal_automation.common.parallel import run_independent_parallel
+        from bare_metal_automation.resetter.meinberg import MeinbergResetter
+
+        console.print("\n[bold]Resetting Meinberg NTP Devices (parallel)[/]")
+        resetter = MeinbergResetter(inventory=self.inventory)
+
+        results = run_independent_parallel(
+            devices=devices,
+            operation=resetter.reset_device,
+            max_workers=len(devices),
+        )
+
+        errors = []
+        for device in devices:
+            key = device.serial or device.ip
+            hostname = device.intended_hostname or device.ip
+            if results.get(key):
+                console.print(f"  [green]\u2713 {hostname} reset[/]")
+            else:
+                console.print(f"  [red]\u2717 {hostname} reset failed[/]")
+                errors.append(f"Factory reset failed for {hostname}")
+        return errors
+
+    def _reset_hpe_servers(
+        self, devices: list[DiscoveredDevice]
+    ) -> list[str]:
+        """Reset HPE servers in parallel."""
+        from bare_metal_automation.common.parallel import run_independent_parallel
+        from bare_metal_automation.resetter.server import HPEServerResetter
+
+        console.print("\n[bold]Resetting HPE Servers (parallel)[/]")
+        resetter = HPEServerResetter(inventory=self.inventory)
+
+        results = run_independent_parallel(
+            devices=devices,
+            operation=resetter.reset_server,
+            max_workers=len(devices),
+        )
+
+        errors = []
+        for device in devices:
+            key = device.serial or device.ip
+            hostname = device.intended_hostname or device.ip
+            if results.get(key):
+                console.print(f"  [green]\u2713 {hostname} reset[/]")
+            else:
+                console.print(f"  [red]\u2717 {hostname} reset failed[/]")
+                errors.append(f"Factory reset failed for {hostname}")
+        return errors
+
+    def _reset_network_devices(
+        self, devices: list[DiscoveredDevice]
+    ) -> list[str]:
+        """Reset Cisco network devices in inside-out order (ascending depth)."""
+        from bare_metal_automation.common.parallel import run_parallel_by_depth_ascending
+        from bare_metal_automation.resetter.network import NetworkResetter
+
+        console.print("\n[bold]Resetting Network Devices (inside-out by depth)[/]")
+        resetter = NetworkResetter(
+            inventory=self.inventory,
+            ssh_timeout=self.ssh_timeout,
+        )
+
+        results = run_parallel_by_depth_ascending(
+            devices=devices,
+            operation=resetter.reset_device,
+            max_workers=4,
+            stop_on_failure=True,
+        )
+
+        errors = []
+        for device in devices:
+            key = device.serial or device.ip
+            hostname = device.intended_hostname or device.ip
+            if results.get(key):
+                console.print(f"  [green]\u2713 {hostname} reset[/]")
+            elif key in results:
+                console.print(f"  [red]\u2717 {hostname} reset failed[/]")
+                errors.append(f"Factory reset failed for {hostname}")
+        return errors
 
     def run_full_deployment(
         self,
