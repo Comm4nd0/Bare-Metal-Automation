@@ -42,3 +42,6 @@ htmlcov/
 
 # Django
 db.sqlite3
+
+# NetBox deployment secrets
+.env.netbox

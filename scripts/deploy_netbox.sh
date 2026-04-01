@@ -1,0 +1,546 @@
+#!/usr/bin/env bash
+# deploy_netbox.sh — Deploy NetBox for Bare Metal Automation
+#
+# Usage:
+#   sudo ./scripts/deploy_netbox.sh [OPTIONS]
+#
+# Options:
+#   --netbox-version VERSION   NetBox version to deploy (default: 4.2)
+#   --domain DOMAIN            FQDN for NetBox (default: netbox.local)
+#   --port PORT                HTTP port for NetBox (default: 8080)
+#   --superuser USER           Admin username (default: admin)
+#   --superuser-email EMAIL    Admin email (default: admin@netbox.local)
+#   --data-dir DIR             Persistent data directory (default: /opt/netbox-data)
+#   --skip-seed                Skip seeding BMA custom fields and device roles
+#   --uninstall                Remove NetBox containers and volumes
+#   -h, --help                 Show this help message
+#
+# Prerequisites: Docker and Docker Compose (v2) must be installed.
+
+set -euo pipefail
+
+# ── Defaults ────────────────────────────────────────────────────────────────
+
+NETBOX_VERSION="4.2"
+NETBOX_DOMAIN="netbox.local"
+NETBOX_PORT="8080"
+SUPERUSER="admin"
+SUPERUSER_EMAIL="admin@netbox.local"
+DATA_DIR="/opt/netbox-data"
+SKIP_SEED=false
+UNINSTALL=false
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
+
+# Colours
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+CYAN='\033[0;36m'
+NC='\033[0m'
+
+# ── Helpers ─────────────────────────────────────────────────────────────────
+
+log()  { echo -e "${GREEN}[BMA]${NC} $*"; }
+warn() { echo -e "${YELLOW}[BMA WARN]${NC} $*"; }
+err()  { echo -e "${RED}[BMA ERROR]${NC} $*" >&2; }
+banner() {
+    echo -e "${CYAN}"
+    echo "============================================="
+    echo "  Bare Metal Automation — NetBox Deployment"
+    echo "============================================="
+    echo -e "${NC}"
+}
+
+usage() {
+    head -24 "$0" | tail -19
+    exit 0
+}
+
+check_prerequisites() {
+    local missing=()
+
+    if ! command -v docker &>/dev/null; then
+        missing+=("docker")
+    fi
+
+    if ! docker compose version &>/dev/null 2>&1; then
+        missing+=("docker-compose-v2")
+    fi
+
+    if [[ ${#missing[@]} -gt 0 ]]; then
+        err "Missing prerequisites: ${missing[*]}"
+        err "Install Docker: https://docs.docker.com/engine/install/"
+        exit 1
+    fi
+
+    if ! docker info &>/dev/null 2>&1; then
+        err "Docker daemon is not running or current user lacks permissions."
+        err "Try: sudo systemctl start docker  OR  add user to docker group."
+        exit 1
+    fi
+
+    log "Prerequisites OK (Docker $(docker --version | grep -oP '\d+\.\d+\.\d+'))"
+}
+
+generate_secret_key() {
+    python3 -c "import secrets; print(secrets.token_urlsafe(50))" 2>/dev/null \
+        || openssl rand -base64 50 | tr -d '\n' \
+        || head -c 50 /dev/urandom | base64 | tr -d '\n'
+}
+
+# ── Parse arguments ────────────────────────────────────────────────────────
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --netbox-version) NETBOX_VERSION="$2"; shift 2 ;;
+        --domain)         NETBOX_DOMAIN="$2"; shift 2 ;;
+        --port)           NETBOX_PORT="$2"; shift 2 ;;
+        --superuser)      SUPERUSER="$2"; shift 2 ;;
+        --superuser-email) SUPERUSER_EMAIL="$2"; shift 2 ;;
+        --data-dir)       DATA_DIR="$2"; shift 2 ;;
+        --skip-seed)      SKIP_SEED=true; shift ;;
+        --uninstall)      UNINSTALL=true; shift ;;
+        -h|--help)        usage ;;
+        *) err "Unknown option: $1"; usage ;;
+    esac
+done
+
+COMPOSE_DIR="${DATA_DIR}/compose"
+ENV_FILE="${COMPOSE_DIR}/.env"
+COMPOSE_FILE="${COMPOSE_DIR}/docker-compose.yml"
+
+# ── Uninstall ───────────────────────────────────────────────────────────────
+
+if [[ "$UNINSTALL" == true ]]; then
+    banner
+    warn "This will stop and remove all NetBox containers and volumes."
+    read -rp "Are you sure? [y/N] " confirm
+    if [[ "$confirm" =~ ^[Yy]$ ]]; then
+        if [[ -f "$COMPOSE_FILE" ]]; then
+            docker compose -f "$COMPOSE_FILE" down -v --remove-orphans
+        fi
+        log "NetBox containers and volumes removed."
+        log "Data directory preserved at: ${DATA_DIR}"
+        log "To fully remove: rm -rf ${DATA_DIR}"
+    else
+        log "Uninstall cancelled."
+    fi
+    exit 0
+fi
+
+# ── Main deployment ────────────────────────────────────────────────────────
+
+banner
+check_prerequisites
+
+# Prompt for superuser password
+if [[ -z "${SUPERUSER_PASSWORD:-}" ]]; then
+    read -rsp "Enter NetBox superuser password for '${SUPERUSER}': " SUPERUSER_PASSWORD
+    echo
+    if [[ -z "$SUPERUSER_PASSWORD" ]]; then
+        err "Password cannot be empty."
+        exit 1
+    fi
+fi
+
+# Generate secrets
+SECRET_KEY=$(generate_secret_key)
+DB_PASSWORD=$(generate_secret_key)
+REDIS_PASSWORD=$(generate_secret_key)
+
+log "NetBox version:  ${NETBOX_VERSION}"
+log "Domain:          ${NETBOX_DOMAIN}"
+log "Port:            ${NETBOX_PORT}"
+log "Data directory:  ${DATA_DIR}"
+
+# ── Create directory structure ──────────────────────────────────────────────
+
+mkdir -p "${COMPOSE_DIR}"
+mkdir -p "${DATA_DIR}/postgres"
+mkdir -p "${DATA_DIR}/redis"
+mkdir -p "${DATA_DIR}/netbox-media"
+mkdir -p "${DATA_DIR}/netbox-reports"
+mkdir -p "${DATA_DIR}/netbox-scripts"
+
+# ── Write environment file ──────────────────────────────────────────────────
+
+log "Generating environment configuration..."
+
+cat > "${ENV_FILE}" <<EOF
+# NetBox deployment for Bare Metal Automation
+# Generated on $(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+# NetBox
+NETBOX_VERSION=${NETBOX_VERSION}
+SECRET_KEY=${SECRET_KEY}
+ALLOWED_HOSTS=${NETBOX_DOMAIN} localhost 127.0.0.1
+CORS_ORIGIN_ALLOW_ALL=true
+
+# Superuser
+SUPERUSER_NAME=${SUPERUSER}
+SUPERUSER_EMAIL=${SUPERUSER_EMAIL}
+SUPERUSER_PASSWORD=${SUPERUSER_PASSWORD}
+SUPERUSER_API_TOKEN=
+
+# PostgreSQL
+DB_NAME=netbox
+DB_USER=netbox
+DB_PASSWORD=${DB_PASSWORD}
+DB_HOST=postgres
+DB_PORT=5432
+
+# Redis
+REDIS_PASSWORD=${REDIS_PASSWORD}
+REDIS_HOST=redis
+REDIS_PORT=6379
+REDIS_DATABASE=0
+REDIS_CACHE_DATABASE=1
+EOF
+
+chmod 600 "${ENV_FILE}"
+log "Environment file written to ${ENV_FILE}"
+
+# ── Write Docker Compose file ──────────────────────────────────────────────
+
+log "Generating Docker Compose configuration..."
+
+cat > "${COMPOSE_FILE}" <<'COMPOSE_EOF'
+# NetBox deployment for Bare Metal Automation
+# Docs: https://netboxlabs.com/docs/netbox/en/stable/
+
+services:
+  netbox:
+    image: netboxcommunity/netbox:v${NETBOX_VERSION}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      # Database
+      DB_HOST: ${DB_HOST}
+      DB_NAME: ${DB_NAME}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_PORT: ${DB_PORT}
+      DB_USER: ${DB_USER}
+      # Redis
+      REDIS_CACHE_DATABASE: ${REDIS_CACHE_DATABASE}
+      REDIS_CACHE_HOST: ${REDIS_HOST}
+      REDIS_CACHE_PASSWORD: ${REDIS_PASSWORD}
+      REDIS_CACHE_PORT: ${REDIS_PORT}
+      REDIS_DATABASE: ${REDIS_DATABASE}
+      REDIS_HOST: ${REDIS_HOST}
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+      REDIS_PORT: ${REDIS_PORT}
+      # NetBox
+      ALLOWED_HOSTS: ${ALLOWED_HOSTS}
+      CORS_ORIGIN_ALLOW_ALL: ${CORS_ORIGIN_ALLOW_ALL}
+      SECRET_KEY: ${SECRET_KEY}
+      # Superuser
+      SUPERUSER_API_TOKEN: ${SUPERUSER_API_TOKEN}
+      SUPERUSER_EMAIL: ${SUPERUSER_EMAIL}
+      SUPERUSER_NAME: ${SUPERUSER_NAME}
+      SUPERUSER_PASSWORD: ${SUPERUSER_PASSWORD}
+      # Skip automatic startup scripts (managed by BMA)
+      SKIP_SUPERUSER: "false"
+    ports:
+      - "${NETBOX_PORT:-8080}:8080"
+    volumes:
+      - netbox-media:/opt/netbox/netbox/media
+      - netbox-reports:/opt/netbox/netbox/reports
+      - netbox-scripts:/opt/netbox/netbox/scripts
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8080/login/ || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 120s
+    restart: unless-stopped
+
+  netbox-worker:
+    image: netboxcommunity/netbox:v${NETBOX_VERSION}
+    depends_on:
+      netbox:
+        condition: service_healthy
+    command: /opt/netbox/venv/bin/python /opt/netbox/netbox/manage.py rqworker
+    environment:
+      DB_HOST: ${DB_HOST}
+      DB_NAME: ${DB_NAME}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_PORT: ${DB_PORT}
+      DB_USER: ${DB_USER}
+      REDIS_CACHE_DATABASE: ${REDIS_CACHE_DATABASE}
+      REDIS_CACHE_HOST: ${REDIS_HOST}
+      REDIS_CACHE_PASSWORD: ${REDIS_PASSWORD}
+      REDIS_CACHE_PORT: ${REDIS_PORT}
+      REDIS_DATABASE: ${REDIS_DATABASE}
+      REDIS_HOST: ${REDIS_HOST}
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+      REDIS_PORT: ${REDIS_PORT}
+      SECRET_KEY: ${SECRET_KEY}
+    volumes:
+      - netbox-media:/opt/netbox/netbox/media
+      - netbox-reports:/opt/netbox/netbox/reports
+      - netbox-scripts:/opt/netbox/netbox/scripts
+    restart: unless-stopped
+
+  netbox-housekeeping:
+    image: netboxcommunity/netbox:v${NETBOX_VERSION}
+    depends_on:
+      netbox:
+        condition: service_healthy
+    command: /opt/netbox/housekeeping.sh
+    environment:
+      DB_HOST: ${DB_HOST}
+      DB_NAME: ${DB_NAME}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_PORT: ${DB_PORT}
+      DB_USER: ${DB_USER}
+      REDIS_CACHE_DATABASE: ${REDIS_CACHE_DATABASE}
+      REDIS_CACHE_HOST: ${REDIS_HOST}
+      REDIS_CACHE_PASSWORD: ${REDIS_PASSWORD}
+      REDIS_CACHE_PORT: ${REDIS_PORT}
+      REDIS_DATABASE: ${REDIS_DATABASE}
+      REDIS_HOST: ${REDIS_HOST}
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+      REDIS_PORT: ${REDIS_PORT}
+      SECRET_KEY: ${SECRET_KEY}
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${DB_NAME}
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    command: redis-server --requirepass ${REDIS_PASSWORD} --appendonly yes
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+volumes:
+  postgres-data:
+  redis-data:
+  netbox-media:
+  netbox-reports:
+  netbox-scripts:
+COMPOSE_EOF
+
+# Substitute NETBOX_PORT into the compose file (since it uses shell var in ports)
+sed -i "s/\${NETBOX_PORT:-8080}/${NETBOX_PORT}/g" "${COMPOSE_FILE}"
+
+log "Docker Compose file written to ${COMPOSE_FILE}"
+
+# ── Pull images and start ──────────────────────────────────────────────────
+
+log "Pulling Docker images (this may take a few minutes)..."
+docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" pull
+
+log "Starting NetBox stack..."
+docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" up -d
+
+# ── Wait for NetBox to become healthy ───────────────────────────────────────
+
+log "Waiting for NetBox to become healthy (this can take 2-3 minutes on first run)..."
+MAX_WAIT=300
+ELAPSED=0
+while [[ $ELAPSED -lt $MAX_WAIT ]]; do
+    STATUS=$(docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" \
+        ps --format json 2>/dev/null | python3 -c "
+import sys, json
+for line in sys.stdin:
+    try:
+        svc = json.loads(line)
+        if svc.get('Service') == 'netbox' and 'healthy' in svc.get('Health', ''):
+            print('healthy')
+            sys.exit(0)
+    except (json.JSONDecodeError, KeyError):
+        pass
+print('waiting')
+" 2>/dev/null || echo "waiting")
+
+    if [[ "$STATUS" == "healthy" ]]; then
+        break
+    fi
+    sleep 10
+    ELAPSED=$((ELAPSED + 10))
+    echo -ne "\r  Elapsed: ${ELAPSED}s / ${MAX_WAIT}s"
+done
+echo
+
+if [[ $ELAPSED -ge $MAX_WAIT ]]; then
+    warn "NetBox did not become healthy within ${MAX_WAIT}s."
+    warn "Check logs: docker compose -f ${COMPOSE_FILE} --env-file ${ENV_FILE} logs netbox"
+    exit 1
+fi
+
+log "NetBox is healthy!"
+
+# ── Generate API token ──────────────────────────────────────────────────────
+
+log "Generating API token for BMA integration..."
+
+API_TOKEN=$(docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" \
+    exec -T netbox /opt/netbox/venv/bin/python /opt/netbox/netbox/manage.py shell -c "
+from users.models import Token
+from django.contrib.auth import get_user_model
+User = get_user_model()
+try:
+    user = User.objects.get(username='${SUPERUSER}')
+except User.DoesNotExist:
+    print('ERROR: superuser not found')
+    exit(1)
+# Reuse existing token or create a new one
+token, created = Token.objects.get_or_create(user=user)
+print(token.key)
+" 2>/dev/null)
+
+if [[ -z "$API_TOKEN" || "$API_TOKEN" == *"ERROR"* ]]; then
+    warn "Could not generate API token automatically."
+    warn "Create one manually at http://${NETBOX_DOMAIN}:${NETBOX_PORT}/user/api-tokens/"
+    API_TOKEN="<generate-manually>"
+fi
+
+# Update .env with the API token
+sed -i "s/^SUPERUSER_API_TOKEN=.*/SUPERUSER_API_TOKEN=${API_TOKEN}/" "${ENV_FILE}"
+
+# ── Seed BMA data ──────────────────────────────────────────────────────────
+
+if [[ "$SKIP_SEED" == false ]]; then
+    log "Seeding NetBox with BMA device roles and custom fields..."
+
+    docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" \
+        exec -T netbox /opt/netbox/venv/bin/python /opt/netbox/netbox/manage.py shell -c "
+from dcim.models import DeviceRole, Manufacturer, DeviceType
+from extras.models import CustomField
+from django.contrib.contenttypes.models import ContentType
+
+# ── Manufacturers ──
+manufacturers = ['Cisco', 'HPE', 'Meinberg']
+for name in manufacturers:
+    obj, created = Manufacturer.objects.get_or_create(
+        name=name,
+        defaults={'slug': name.lower()},
+    )
+    status = 'created' if created else 'exists'
+    print(f'  Manufacturer: {name} ({status})')
+
+# ── Device Roles ──
+roles = {
+    'core-switch':          {'color': '2196f3', 'vm_role': False},
+    'distribution-switch':  {'color': '4caf50', 'vm_role': False},
+    'access-switch':        {'color': '8bc34a', 'vm_role': False},
+    'wan-router':           {'color': 'ff9800', 'vm_role': False},
+    'distribution-router':  {'color': 'ffc107', 'vm_role': False},
+    'perimeter-firewall':   {'color': 'f44336', 'vm_role': False},
+    'compute-server':       {'color': '9c27b0', 'vm_role': False},
+    'ntp-server':           {'color': '607d8b', 'vm_role': False},
+}
+for slug, attrs in roles.items():
+    name = slug.replace('-', ' ').title()
+    obj, created = DeviceRole.objects.get_or_create(
+        slug=slug,
+        defaults={'name': name, 'color': attrs['color'], 'vm_role': attrs['vm_role']},
+    )
+    status = 'created' if created else 'exists'
+    print(f'  Device Role: {name} ({status})')
+
+# ── Custom Fields (BMA-specific) ──
+device_ct = ContentType.objects.get_for_model(
+    __import__('dcim.models', fromlist=['Device']).Device
+)
+custom_fields = {
+    'bma_serial': {
+        'type': 'text',
+        'label': 'BMA Serial Number',
+        'description': 'Factory serial number used for BMA identification',
+    },
+    'bma_firmware_version': {
+        'type': 'text',
+        'label': 'BMA Firmware Version',
+        'description': 'Current firmware version tracked by BMA',
+    },
+    'bma_provisioning_status': {
+        'type': 'text',
+        'label': 'BMA Provisioning Status',
+        'description': 'Last known provisioning status from BMA',
+    },
+    'bma_last_deployed': {
+        'type': 'text',
+        'label': 'BMA Last Deployed',
+        'description': 'Timestamp of last successful BMA deployment',
+    },
+}
+for name, attrs in custom_fields.items():
+    obj, created = CustomField.objects.get_or_create(
+        name=name,
+        defaults={
+            'type': attrs['type'],
+            'label': attrs['label'],
+            'description': attrs['description'],
+        },
+    )
+    if created:
+        obj.content_types.add(device_ct)
+    status = 'created' if created else 'exists'
+    print(f'  Custom Field: {attrs[\"label\"]} ({status})')
+
+print()
+print('BMA seed data complete.')
+" 2>/dev/null || warn "Seeding failed — you can re-run the script or seed manually."
+fi
+
+# ── Write BMA integration config ───────────────────────────────────────────
+
+BMA_ENV_SNIPPET="${PROJECT_ROOT}/.env.netbox"
+cat > "${BMA_ENV_SNIPPET}" <<EOF
+# NetBox integration for Bare Metal Automation
+# Source this file or add to your environment:
+#   export \$(grep -v '^#' .env.netbox | xargs)
+BMA_NETBOX_URL=http://localhost:${NETBOX_PORT}
+BMA_NETBOX_TOKEN=${API_TOKEN}
+EOF
+
+chmod 600 "${BMA_ENV_SNIPPET}"
+
+# ── Summary ─────────────────────────────────────────────────────────────────
+
+echo
+echo -e "${GREEN}=============================================${NC}"
+echo -e "${GREEN}  NetBox deployment complete!${NC}"
+echo -e "${GREEN}=============================================${NC}"
+echo
+echo -e "  URL:        ${CYAN}http://localhost:${NETBOX_PORT}${NC}"
+echo -e "  Username:   ${CYAN}${SUPERUSER}${NC}"
+echo -e "  API Token:  ${CYAN}${API_TOKEN}${NC}"
+echo
+echo -e "  BMA config: ${CYAN}${BMA_ENV_SNIPPET}${NC}"
+echo -e "  Compose:    ${CYAN}${COMPOSE_FILE}${NC}"
+echo -e "  Data:       ${CYAN}${DATA_DIR}${NC}"
+echo
+echo -e "  ${YELLOW}To use with BMA:${NC}"
+echo -e "    export \$(grep -v '^#' .env.netbox | xargs)"
+echo -e "    bare-metal-automation discover"
+echo
+echo -e "  ${YELLOW}Management:${NC}"
+echo -e "    Logs:      docker compose -f ${COMPOSE_FILE} --env-file ${ENV_FILE} logs -f"
+echo -e "    Stop:      docker compose -f ${COMPOSE_FILE} --env-file ${ENV_FILE} down"
+echo -e "    Uninstall: $0 --uninstall"
+echo

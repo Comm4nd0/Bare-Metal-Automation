@@ -30,6 +30,27 @@ Bare Metal Automation is a zero-touch provisioning tool for bare-metal infrastru
 
 ## Session Log
 
+### Session — NetBox Deployment Script
+
+**Date**: 2026-04-01
+**Branch**: `claude/netbox-deployment-script-fvFtR`
+
+**What was done**:
+- Created `scripts/deploy_netbox.sh` — a complete deployment script for standing up NetBox via Docker Compose
+- Script deploys NetBox (configurable version, default 4.2) with PostgreSQL 16 and Redis 7
+- Includes NetBox worker and housekeeping containers for background jobs
+- Auto-generates secure secrets (DB password, Redis password, Django secret key)
+- Creates a superuser and generates an API token for BMA integration
+- Seeds BMA-specific data into NetBox: manufacturers (Cisco, HPE, Meinberg), device roles (core-switch, distribution-switch, access-switch, wan-router, distribution-router, perimeter-firewall, compute-server, ntp-server), and custom fields (bma_serial, bma_firmware_version, bma_provisioning_status, bma_last_deployed)
+- Outputs a `.env.netbox` file with `BMA_NETBOX_URL` and `BMA_NETBOX_TOKEN` ready for BMA usage
+- Supports `--uninstall` for clean teardown
+- Added `.env.netbox` to `.gitignore` to prevent leaking secrets
+
+**Key decisions**:
+- Used `netboxcommunity/netbox` Docker image (official community image) rather than building from source
+- Default data directory at `/opt/netbox-data` keeps persistent data outside the repo
+- Seeding BMA roles/fields on first deploy ensures NetBox is immediately usable with the orchestrator scripts
+
 ### Session 6 — Sprint 3: Django Dashboard & Bundle Ingestion (PR TBD)
 
 **Date**: 2026-04-01
