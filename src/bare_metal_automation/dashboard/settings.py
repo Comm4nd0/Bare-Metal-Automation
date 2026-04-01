@@ -15,6 +15,7 @@ DEBUG = os.environ.get("BMA_DEBUG", "true").lower() in ("true", "1", "yes")
 ALLOWED_HOSTS = os.environ.get("BMA_ALLOWED_HOSTS", "*").split(",")
 
 INSTALLED_APPS = [
+    "channels",
     "django.contrib.contenttypes",
     "django.contrib.staticfiles",
     "bare_metal_automation.dashboard",
@@ -51,6 +52,19 @@ STATIC_URL = "/static/"
 STATICFILES_DIRS = [BASE_DIR / "static"]
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
+
+# ── Django Channels ────────────────────────────────────────────────────────
+
+ASGI_APPLICATION = "bare_metal_automation.dashboard.routing.application"
+
+# In-memory channel layer — no Redis required for single-server deployments.
+# For multi-server or high-availability deployments swap this for:
+#   channels_redis.core.RedisChannelLayer with HOSTS pointing to Redis.
+CHANNEL_LAYERS = {
+    "default": {
+        "BACKEND": "channels.layers.InMemoryChannelLayer",
+    }
+}
 
 # BMA specific
 BMA_INVENTORY_PATH = os.environ.get(

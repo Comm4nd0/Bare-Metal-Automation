@@ -480,6 +480,70 @@ Bare Metal Automation is a zero-touch provisioning tool for bare-metal infrastru
 - Bundle layout: `configs/`, `firmware/`, `isos/`, `certs/`, `ansible/` + `inventory.yaml`, `manifest.yaml`, `checksums.sha256`
 - `bma-generate --dry-run` skips all file writes but prints what would be rendered — safe to run against prod NetBox
 
+### Session 13 — Sprint 4: BMA Engine — Phase Implementation
+
+**Date**: 2026-04-01
+**Branch**: `luma/nice-galileo`
+
+**What was done**:
+
+Implemented the full BMA Engine Sprint 4, filling in module stubs and adding new sub-modules across every layer of the stack.
+
+**Discovery sub-modules** (`discovery/`):
+- `dhcp.py` — `DhcpServer` class: writes dnsmasq config, starts/stops process, parses lease file, `wait_for_leases()` with timeout
+- `cdp.py` — `CDPCollector` class + `parse_cdp_output()` standalone parser: SSH-based CDP neighbour collection with credential fallback
+- `serial.py` — `parse_inventory()` / `collect_serial()`: extracts serial (SN) and PID from `show inventory`, `pid_to_platform()` maps PID → BMA platform string
+- `matcher.py` — `InventoryMatcher` class + `MatchResult` dataclass: reconciles discovered vs. expected serials, mutates `DiscoveredDevice` objects, `update_db()` creates/updates Django `Device` ORM records
+
+**Topology sub-modules** (`topology/`):
+- `graph.py` — `build_graph()`: nodes keyed by serial number (stable across DHCP renewals), edges = physical cables with port labels from CDP
+- `ordering.py` — `outside_in_order()` / `calculate_bfs_depths()`: BFS from laptop serial, mutates `bfs_depth` and `config_order` on devices
+- `visualise.py` — `export_for_d3()`: D3.js force-graph JSON (`{nodes, edges, metadata}`) with group-by-role for colour coding
+
+**Cabling sub-modules** (`cabling/`):
+- `intent.py` — `CablingRule` dataclass + `load_cabling_rules()`: loads YAML cabling rules file, `CablingIntent.for_device()` / `port_map()` helpers
+- `diff.py` — `diff_device()` / `cdp_to_actual()`: compares port-indexed intent vs. actual CDP; categories: correct, adaptable, mismatched, missing, unexpected
+- `adapter.py` — `ConfigAdapter.adapt()`: rewrites config lines for `adaptable` ports, patches `description` to reference actual remote device
+- `report.py` — `ValidationReport` + `generate_report()`: structured report with JSON and human-readable output, `blocking` property gates deployment
+
+**Configurator** (`configurator/`):
+- `validator.py` — `ConfigValidator` + `ValidationResult`: post-config checks per role; STP root, trunk status, OSPF adjacencies, HSRP state, management-IP TCP/22 reachability
+
+**Provisioner sub-modules** (`provisioner/`):
+- `redfish.py` — `RedfishClient`: extracted from `server.py`, adds session-token auth, automatic retries (503/504), `wait_for_post()`, `wait_for_ilo()`, context-manager support
+- `ilo.py` — discrete iLO operation functions: `upload_and_flash_firmware()`, `configure_bios()`, `configure_raid()`, `mount_virtual_media()`, `set_boot_order()`, `unmount_all_virtual_media()`
+- `installer.py` — `OSInstaller`: mounts OS + kickstart ISOs, sets one-time boot, reboots, polls for completion via virtual-media-not-active heuristic
+- `pxe.py` — `PXEServer`: dnsmasq TFTP-mode wrapper, `serve_pxe_files()`, `add_host_entry()` / `remove_host_entry()` (per-MAC pxelinux.cfg)
+
+**Factory Reset module** (`factory_reset/`):
+- `reset.py` — `FactoryResetOrchestrator`: 6-phase reset sequence (VM teardown → NSX teardown → vCenter teardown → server wipe → network reset → validation). Phases 1–3 are stubbed with TODO for VMware API sprint; phases 4–6 delegate to existing `resetter/` modules
+- `sanitise.py` — `DataSanitiser`: SED cryptographic erase via Redfish `Drive.SecureErase`, Cisco `write erase` via SSH, VM disk zeroing (TODO), `verify_erasure()` checks no logical drives remain
+- `certificate.py` — `SanitisationCertificate` + `CertificateGenerator`: UUID-keyed JSON + human-readable text certificates with SHA-256 tamper-evidence checksum, `generate_batch()` for bulk ops
+
+**Dashboard WebSocket layer** (`dashboard/`):
+- `events.py` — `phase_started()`, `phase_completed()`, `device_status_changed()`, `device_log()`, `deployment_log()`, `topology_updated()`: wraps Django Channels `group_send()`, gracefully no-ops if Channels not installed
+- `consumers.py` — `DeploymentConsumer(AsyncWebsocketConsumer)`: relays channel group messages to browser, URL: `ws://host/ws/deployment/{id}/`
+- `routing.py` — `ProtocolTypeRouter`: HTTP → Django ASGI, WebSocket → `DeploymentConsumer`
+- `asgi.py` — ASGI entry point for Daphne/Uvicorn
+
+**Settings / deps**:
+- `settings.py` — added `"channels"` to `INSTALLED_APPS`, `ASGI_APPLICATION`, `CHANNEL_LAYERS` with `InMemoryChannelLayer`
+- `pyproject.toml` — added `channels>=4.0` and `daphne>=4.0`
+
+**Orchestrator + deployment integration**:
+- `orchestrator.py` — new `on_device_discovered` and `on_device_change` callbacks; `_emit_device_discovered()` / `_emit_device_change()` helpers; wired into all phase result loops (network config, firmware, server provisioning, NTP provisioning)
+- `deployment.py` — `_on_device_discovered()` creates/upserts `Device` ORM records; `_on_device_change()` updates `Device.state`, creates `DeploymentLog` entry, and broadcasts via `events.device_status_changed()`
+
+**Decisions made**:
+- Discovery sub-modules decompose `engine.py` concerns into single-responsibility modules while leaving `engine.py` intact as the high-level coordinator
+- Topology nodes keyed by serial (not IP) — stable across DHCP lease renewals
+- `CablingIntent` can load from YAML rules file (new) or continue using the template-parsing approach in `validator.py` — both paths supported
+- `RedfishClient` uses `InMemoryChannelLayer` (no Redis required) — operators can swap to `channels_redis` for HA deployments
+- WebSocket events use fire-and-forget (`async_to_sync` + exception swallowed) so channel layer misconfiguration never breaks hardware operations
+- Factory reset `FactoryResetOrchestrator` phases 1–3 (VMware) are intentional stubs — flagged clearly as TODOs for a dedicated VMware sprint
+- Sanitisation certificates use SHA-256 checksum over payload for tamper evidence — no PKI required for field use
+- Device callbacks use a simple `Callable` pattern (not signals) to keep the orchestrator free of Django imports
+
 ---
 
 ## Current State of the Project
@@ -515,12 +579,13 @@ Bare Metal Automation is a zero-touch provisioning tool for bare-metal infrastru
 
 ### What still needs to be built (from ROADMAP)
 
-- **Milestone 1 (Foundation/MVP)**: DHCP server wrapper, CDP collector, serial collector, device matcher, ~~mock device simulator~~, unit tests
-- **Milestone 2 (Cabling Validation)**: Intent parser, cabling diff engine, adaptation engine
-- **Milestone 3 (Network Config)**: ~~Config renderer (Jinja2 rendering engine, all templates)~~, ~~Ansible dynamic inventory (hosts.ini generation)~~, playbooks, dead man's switch implementation, rollback handler
-- **Milestone 4 (Server Provisioning)**: ~~Redfish client~~, ~~iLO discovery~~, ~~firmware update~~, ~~BIOS config~~, ~~virtual media~~, PXE (partially done — virtual media boot implemented)
-- **Milestone 5 (Dashboard)**: WebSocket live updates, topology visualisation (D3.js/vis.js), ~~deploy button~~, log viewer, ~~simulation mode~~
+- **Milestone 1 (Foundation/MVP)**: ~~DHCP server wrapper~~, ~~CDP collector~~, ~~serial collector~~, ~~device matcher~~, ~~mock device simulator~~, unit tests for new sub-modules
+- **Milestone 2 (Cabling Validation)**: ~~Intent parser~~, ~~cabling diff engine~~, ~~adaptation engine~~, ~~report generator~~
+- **Milestone 3 (Network Config)**: ~~Config renderer~~, ~~dead man's switch~~, ~~post-config validator~~, Ansible playbooks, rollback handler
+- **Milestone 4 (Server Provisioning)**: ~~Redfish client~~, ~~iLO operations~~, ~~firmware update~~, ~~BIOS config~~, ~~virtual media~~, ~~OS installer~~, ~~PXE fallback~~
+- **Milestone 5 (Dashboard)**: ~~WebSocket events (server-side)~~, D3.js topology renderer (frontend JS), log viewer enhancements, ~~deploy button~~, ~~simulation mode~~
 - **Milestone 6 (Hardening)**: Serial console fallback, retry logic, ~~state persistence~~, multi-NIC, LLDP
+- **VMware sprint**: vCenter teardown, NSX teardown, VM teardown (stubbed in `factory_reset/reset.py`)
 
 ### Session 12 — Sprint 1: NetBox Site Lifecycle Foundation
 

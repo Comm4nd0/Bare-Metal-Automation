@@ -56,12 +56,18 @@ class Orchestrator:
         checkpoint_path: str | Path = DEFAULT_CHECKPOINT_PATH,
         stop_event: threading.Event | None = None,
         on_phase_change: Callable[[str], None] | None = None,
+        on_device_discovered: Callable[[DiscoveredDevice], None] | None = None,
+        on_device_change: Callable[[DiscoveredDevice, str], None] | None = None,
     ) -> None:
         self.inventory_path = Path(inventory_path)
         self.ssh_timeout = ssh_timeout
         self.checkpoint_path = Path(checkpoint_path)
         self.stop_event = stop_event
         self.on_phase_change = on_phase_change
+        # Called once per device after discovery + inventory matching
+        self.on_device_discovered = on_device_discovered
+        # Called whenever a device's state changes: (device, message)
+        self.on_device_change = on_device_change
         self.state = DeploymentState()
         self.inventory: DeploymentInventory | None = None
 
@@ -89,6 +95,24 @@ class Orchestrator:
         """Delete the checkpoint file on successful completion."""
         remove_checkpoint(self.checkpoint_path)
 
+    def _emit_device_change(
+        self, device: DiscoveredDevice, message: str = ""
+    ) -> None:
+        """Fire the on_device_change callback if one is registered."""
+        if self.on_device_change is not None:
+            try:
+                self.on_device_change(device, message)
+            except Exception as e:
+                logger.debug(f"on_device_change callback raised: {e}")
+
+    def _emit_device_discovered(self, device: DiscoveredDevice) -> None:
+        """Fire the on_device_discovered callback if one is registered."""
+        if self.on_device_discovered is not None:
+            try:
+                self.on_device_discovered(device)
+            except Exception as e:
+                logger.debug(f"on_device_discovered callback raised: {e}")
+
     def _phase_index(self, phase: DeploymentPhase) -> int:
         """Return the position of a phase in PHASE_ORDER."""
         try:
@@ -106,6 +130,8 @@ class Orchestrator:
         checkpoint_path: str | Path = DEFAULT_CHECKPOINT_PATH,
         stop_event: threading.Event | None = None,
         on_phase_change: Callable[[str], None] | None = None,
+        on_device_discovered: Callable[[DiscoveredDevice], None] | None = None,
+        on_device_change: Callable[[DiscoveredDevice, str], None] | None = None,
     ) -> Orchestrator:
         """Create an Orchestrator pre-loaded with state from a checkpoint.
 
@@ -119,6 +145,8 @@ class Orchestrator:
             checkpoint_path=checkpoint_path,
             stop_event=stop_event,
             on_phase_change=on_phase_change,
+            on_device_discovered=on_device_discovered,
+            on_device_change=on_device_change,
         )
         orch.state = deserialize_state(data)
 
@@ -176,6 +204,10 @@ class Orchestrator:
         # Step 3: Match serials to inventory
         console.print("  [dim]Matching to inventory...[/]")
         engine.match_to_inventory(self.state.discovered_devices, self.inventory)
+
+        # Notify dashboard of each discovered device
+        for device in self.state.discovered_devices.values():
+            self._emit_device_discovered(device)
 
         matched = len(self.state.matched_devices)
         unmatched = len(self.state.unmatched_devices)
@@ -349,11 +381,13 @@ class Orchestrator:
             key = device.serial or device.ip
             if results.get(key):
                 device.state = DeviceState.CONFIGURED
+                self._emit_device_change(device, "Network configuration applied")
                 console.print(
                     f"  [green]✓ {device.intended_hostname} configured[/]"
                 )
             elif key in results:
                 device.state = DeviceState.FAILED
+                self._emit_device_change(device, "Configuration failed")
                 console.print(
                     f"  [red]✗ {device.intended_hostname} failed[/]"
                 )
@@ -408,11 +442,14 @@ class Orchestrator:
         for device in fw_devices:
             key = device.serial or device.ip
             if results.get(key):
+                self._emit_device_change(device, "Firmware upgraded")
                 console.print(
                     f"  [green]✓ {device.intended_hostname} "
                     f"firmware upgraded[/]"
                 )
             elif key in results:
+                device.state = DeviceState.FAILED
+                self._emit_device_change(device, "Firmware upgrade failed")
                 console.print(
                     f"  [red]✗ {device.intended_hostname} "
                     f"firmware upgrade failed[/]"
@@ -460,11 +497,14 @@ class Orchestrator:
         for device in servers:
             key = device.serial or device.ip
             if results.get(key):
+                self._emit_device_change(device, "Server provisioned")
                 console.print(
                     f"  [green]✓ {device.intended_hostname} "
                     f"provisioned[/]"
                 )
             else:
+                device.state = DeviceState.FAILED
+                self._emit_device_change(device, "Server provisioning failed")
                 console.print(
                     f"  [red]✗ {device.intended_hostname} "
                     f"provisioning failed[/]"
@@ -512,11 +552,14 @@ class Orchestrator:
         for device in ntp_devices:
             key = device.serial or device.ip
             if results.get(key):
+                self._emit_device_change(device, "NTP device provisioned")
                 console.print(
                     f"  [green]✓ {device.intended_hostname} "
                     f"provisioned[/]"
                 )
             else:
+                device.state = DeviceState.FAILED
+                self._emit_device_change(device, "NTP provisioning failed")
                 console.print(
                     f"  [red]✗ {device.intended_hostname} "
                     f"provisioning failed[/]"
