@@ -8,6 +8,14 @@ from typing import Any
 
 
 class DevicePlatform(str, Enum):
+    """Known device platforms.
+
+    This enum provides backward-compatible constants for built-in vendors.
+    New vendors do **not** need to be added here — the driver registry
+    accepts arbitrary platform strings.  Use :meth:`from_string` to
+    resolve a platform string to an enum member (or ``None``).
+    """
+
     CISCO_IOS = "cisco_ios"
     CISCO_IOSXE = "cisco_iosxe"
     CISCO_ASA = "cisco_asa"
@@ -16,6 +24,22 @@ class DevicePlatform(str, Enum):
     HPE_DL360_GEN10 = "hpe_dl360_gen10"
     HPE_DL380_GEN10 = "hpe_dl380_gen10"
     MEINBERG_LANTIME = "meinberg_lantime"
+
+    @classmethod
+    def from_string(cls, value: str) -> DevicePlatform | None:
+        """Return the enum member for *value*, or ``None`` if unknown."""
+        try:
+            return cls(value)
+        except ValueError:
+            return None
+
+
+class DeviceCategory(str, Enum):
+    """Broad device category — used to route devices to the correct driver."""
+
+    NETWORK = "network"
+    SERVER = "server"
+    APPLIANCE = "appliance"
 
 
 class DeviceRole(str, Enum):
@@ -42,14 +66,14 @@ class DeviceState(str, Enum):
     BIOS_CONFIGURED = "bios_configured"
     RAID_CONFIGURING = "raid_configuring"
     RAID_CONFIGURED = "raid_configured"
-    SPP_INSTALLING = "spp_installing"
-    SPP_INSTALLED = "spp_installed"
+    DRIVER_PACK_INSTALLING = "driver_pack_installing"
+    DRIVER_PACK_INSTALLED = "driver_pack_installed"
     OS_INSTALLING = "os_installing"
     OS_INSTALLED = "os_installed"
     OS_CONFIGURING = "os_configuring"
     OS_CONFIGURED = "os_configured"
-    ILO_CONFIGURING = "ilo_configuring"
-    ILO_CONFIGURED = "ilo_configured"
+    BMC_CONFIGURING = "bmc_configuring"
+    BMC_CONFIGURED = "bmc_configured"
     PROVISIONING = "provisioning"
     PROVISIONED = "provisioned"
     RESETTING = "resetting"
@@ -57,6 +81,24 @@ class DeviceState(str, Enum):
     FACTORY_RESET = "factory_reset"
     POWERED_OFF = "powered_off"
     FAILED = "failed"
+    # Generic vendor-step states for driver-specific sub-phases
+    VENDOR_STEP = "vendor_step"
+
+    # Backward-compatible aliases (old names still work via from_string)
+    @classmethod
+    def from_string(cls, value: str) -> DeviceState:
+        """Resolve a state string, mapping legacy names to current members."""
+        _legacy: dict[str, str] = {
+            "spp_installing": "driver_pack_installing",
+            "spp_installed": "driver_pack_installed",
+            "ilo_configuring": "bmc_configuring",
+            "ilo_configured": "bmc_configured",
+        }
+        value = _legacy.get(value, value)
+        try:
+            return cls(value)
+        except ValueError:
+            return cls.UNKNOWN
 
 
 class DeploymentPhase(str, Enum):
@@ -143,8 +185,10 @@ class DiscoveredDevice:
     intended_hostname: str | None = None
     template_path: str | None = None
     device_platform: DevicePlatform | None = None
+    category: DeviceCategory | None = None
     bfs_depth: int | None = None
     config_order: int | None = None
+    management_ip: str | None = None
 
 
 @dataclass

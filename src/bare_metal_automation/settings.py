@@ -8,14 +8,34 @@ import from this file rather than defining their own defaults.
 from __future__ import annotations
 
 import os
+from typing import Any
 
-# ── iLO / Redfish credentials ────────────────────────────────────────────────
-ILO_DEFAULT_USER = os.environ.get("BMA_ILO_USER", "Administrator")
-ILO_DEFAULT_PASSWORD = os.environ.get("BMA_ILO_PASSWORD", "admin")
+# ── Vendor-specific defaults (grouped by vendor) ─────────────────────────────
+VENDOR_DEFAULTS: dict[str, dict[str, Any]] = {
+    "cisco": {
+        "credentials": [
+            ("cisco", "cisco"),
+            ("admin", "admin"),
+            ("admin", ""),
+        ],
+    },
+    "hpe": {
+        "ilo_user": os.environ.get("BMA_ILO_USER", "Administrator"),
+        "ilo_password": os.environ.get("BMA_ILO_PASSWORD", "admin"),
+    },
+    "meinberg": {
+        "user": os.environ.get("BMA_MEINBERG_USER", "admin"),
+        "password": os.environ.get("BMA_MEINBERG_PASSWORD", ""),
+    },
+}
 
-# ── Meinberg NTP credentials ─────────────────────────────────────────────────
-MEINBERG_DEFAULT_USER = os.environ.get("BMA_MEINBERG_USER", "admin")
-MEINBERG_DEFAULT_PASSWORD = os.environ.get("BMA_MEINBERG_PASSWORD", "")
+# ── iLO / Redfish credentials (backward-compatible accessors) ────────────────
+ILO_DEFAULT_USER = VENDOR_DEFAULTS["hpe"]["ilo_user"]
+ILO_DEFAULT_PASSWORD = VENDOR_DEFAULTS["hpe"]["ilo_password"]
+
+# ── Meinberg NTP credentials (backward-compatible accessors) ─────────────────
+MEINBERG_DEFAULT_USER = VENDOR_DEFAULTS["meinberg"]["user"]
+MEINBERG_DEFAULT_PASSWORD = VENDOR_DEFAULTS["meinberg"]["password"]
 
 # ── Discovery credentials (tried in order) ────────────────────────────────────
 # Override with a comma-separated list of user:password pairs
@@ -28,11 +48,7 @@ if _cred_env:
         if ":" in pair
     ]
 else:
-    DEFAULT_CREDENTIALS = [
-        ("cisco", "cisco"),
-        ("admin", "admin"),
-        ("admin", ""),
-    ]
+    DEFAULT_CREDENTIALS = VENDOR_DEFAULTS["cisco"]["credentials"]
 
 # ── Redfish API paths ────────────────────────────────────────────────────────
 REDFISH_BASE = "/redfish/v1"

@@ -16,6 +16,7 @@ from bare_metal_automation.common.checkpoint import (
     remove_checkpoint,
     save_checkpoint,
 )
+from bare_metal_automation.drivers import DriverRegistry, load_builtin_drivers
 from bare_metal_automation.models import (
     DeploymentInventory,
     DeploymentPhase,
@@ -23,6 +24,9 @@ from bare_metal_automation.models import (
     DeviceState,
     DiscoveredDevice,
 )
+
+# Ensure built-in drivers are registered
+load_builtin_drivers()
 
 logger = logging.getLogger(__name__)
 console = Console()
@@ -269,30 +273,37 @@ class Orchestrator:
         validator.print_report(self.state.cabling_results)
         return self.state
 
-    def _get_network_devices(self) -> list[DiscoveredDevice]:
-        """Return discovered Cisco network devices in topology order."""
+    def _get_devices_by_category(
+        self, category: str, *, topology_ordered: bool = False
+    ) -> list[DiscoveredDevice]:
+        """Return discovered devices matching a driver *category*.
+
+        Args:
+            category: One of ``"network"``, ``"server"``, ``"appliance"``.
+            topology_ordered: If True, return network devices in topology
+                order (outside-in); otherwise return in inventory order.
+        """
+        if topology_ordered:
+            # Walk topology order and filter by category
+            devices = []
+            for serial in self.state.topology_order:
+                device = next(
+                    (d for d in self.state.discovered_devices.values()
+                     if d.serial == serial),
+                    None,
+                )
+                if device is None:
+                    continue
+                spec = self.inventory.get_device_spec(serial) or {}
+                platform = spec.get("platform", "")
+                if DriverRegistry.device_category(platform) == category:
+                    devices.append(device)
+            return devices
+
         devices = []
-        for serial in self.state.topology_order:
-            device = next(
-                (d for d in self.state.discovered_devices.values()
-                 if d.serial == serial),
-                None,
-            )
-            if device is None:
-                continue
-            spec = self.inventory.get_device_spec(serial) or {}
+        for serial, spec in self.inventory.devices.items():
             platform = spec.get("platform", "")
-            if platform.startswith("cisco"):
-                devices.append(device)
-        return devices
-
-    def _get_devices_by_platform_prefix(
-        self, prefix: str
-    ) -> list[DiscoveredDevice]:
-        """Return discovered devices whose platform starts with prefix."""
-        devices = []
-        for serial, spec in self.inventory.devices.items():
-            if not spec.get("platform", "").startswith(prefix):
+            if DriverRegistry.device_category(platform) != category:
                 continue
             device = next(
                 (d for d in self.state.discovered_devices.values()
@@ -309,28 +320,17 @@ class Orchestrator:
                 )
         return devices
 
-    def _get_devices_by_platform(
-        self, platform_value: str
-    ) -> list[DiscoveredDevice]:
-        """Return discovered devices with an exact platform match."""
-        devices = []
-        for serial, spec in self.inventory.devices.items():
-            if spec.get("platform") != platform_value:
-                continue
-            device = next(
-                (d for d in self.state.discovered_devices.values()
-                 if d.serial == serial),
-                None,
-            )
-            if device is not None:
-                devices.append(device)
-            else:
-                hostname = spec.get("hostname", serial)
-                console.print(
-                    f"  [yellow]Skipping {hostname} — "
-                    f"not discovered[/]"
-                )
-        return devices
+    def _get_network_devices(self) -> list[DiscoveredDevice]:
+        """Return discovered network devices in topology order."""
+        return self._get_devices_by_category("network", topology_ordered=True)
+
+    def _get_server_devices(self) -> list[DiscoveredDevice]:
+        """Return discovered server devices."""
+        return self._get_devices_by_category("server")
+
+    def _get_appliance_devices(self) -> list[DiscoveredDevice]:
+        """Return discovered appliance devices."""
+        return self._get_devices_by_category("appliance")
 
     def run_network_config(self, dry_run: bool = False) -> DeploymentState:
         """Configure network devices in outside-in order.
@@ -462,35 +462,44 @@ class Orchestrator:
         return self.state
 
     def run_server_provisioning(self) -> DeploymentState:
-        """Provision HPE servers via Redfish (BIOS, RAID, SPP, OS, iLO).
+        """Provision servers via their registered driver (e.g. Redfish for HPE).
 
         All servers are provisioned in parallel — they are independent
-        devices accessed via iLO and don't sit on each other's paths.
+        devices accessed via BMC and don't sit on each other's paths.
         """
         if not self.inventory:
             self.inventory = self._load_inventory()
 
         from bare_metal_automation.common.parallel import run_independent_parallel
-        from bare_metal_automation.provisioner.server import HPEServerProvisioner
 
         console.print(
             "\n[bold]Server Provisioning (parallel)[/]"
         )
         self.state.phase = DeploymentPhase.SERVER_PROVISION
 
-        provisioner = HPEServerProvisioner(inventory=self.inventory)
-        servers = self._get_devices_by_platform_prefix("hpe_")
+        servers = self._get_server_devices()
 
         if not servers:
-            console.print("  No HPE servers to provision")
+            console.print("  No servers to provision")
             return self.state
 
         for device in servers:
             device.state = DeviceState.PROVISIONING
 
+        def _provision(device: DiscoveredDevice) -> bool:
+            spec = self.inventory.get_device_spec(device.serial) or {}
+            platform = spec.get("platform", "")
+            driver = DriverRegistry.get_server_driver(
+                platform, inventory=self.inventory
+            )
+            if driver is None:
+                logger.error("No server driver for platform: %s", platform)
+                return False
+            return driver.provision_server(device)
+
         results = run_independent_parallel(
             devices=servers,
-            operation=provisioner.provision_server,
+            operation=_provision,
             max_workers=len(servers),
         )
 
@@ -516,60 +525,72 @@ class Orchestrator:
 
         return self.state
 
-    def run_ntp_provisioning(self) -> DeploymentState:
-        """Provision Meinberg NTP devices.
+    def run_appliance_provisioning(self) -> DeploymentState:
+        """Provision appliance devices (NTP, etc.) via their registered driver.
 
-        All NTP devices run in parallel — they are independent
-        appliances with their own management interfaces.
+        All appliances run in parallel — they are independent
+        devices with their own management interfaces.
         """
         if not self.inventory:
             self.inventory = self._load_inventory()
 
         from bare_metal_automation.common.parallel import run_independent_parallel
-        from bare_metal_automation.provisioner.meinberg import MeinbergProvisioner
 
         console.print(
-            "\n[bold]NTP Provisioning (parallel)[/]"
+            "\n[bold]Appliance Provisioning (parallel)[/]"
         )
         self.state.phase = DeploymentPhase.NTP_PROVISION
 
-        provisioner = MeinbergProvisioner(inventory=self.inventory)
-        ntp_devices = self._get_devices_by_platform("meinberg_lantime")
+        appliances = self._get_appliance_devices()
 
-        if not ntp_devices:
-            console.print("  No Meinberg NTP devices to provision")
+        if not appliances:
+            console.print("  No appliance devices to provision")
             return self.state
 
-        for device in ntp_devices:
+        for device in appliances:
             device.state = DeviceState.PROVISIONING
 
+        def _provision(device: DiscoveredDevice) -> bool:
+            spec = self.inventory.get_device_spec(device.serial) or {}
+            platform = spec.get("platform", "")
+            driver = DriverRegistry.get_appliance_driver(
+                platform, inventory=self.inventory
+            )
+            if driver is None:
+                logger.error("No appliance driver for platform: %s", platform)
+                return False
+            return driver.provision_device(device)
+
         results = run_independent_parallel(
-            devices=ntp_devices,
-            operation=provisioner.provision_device,
-            max_workers=len(ntp_devices),
+            devices=appliances,
+            operation=_provision,
+            max_workers=len(appliances),
         )
 
-        for device in ntp_devices:
+        for device in appliances:
             key = device.serial or device.ip
             if results.get(key):
-                self._emit_device_change(device, "NTP device provisioned")
+                self._emit_device_change(device, "Appliance provisioned")
                 console.print(
                     f"  [green]✓ {device.intended_hostname} "
                     f"provisioned[/]"
                 )
             else:
                 device.state = DeviceState.FAILED
-                self._emit_device_change(device, "NTP provisioning failed")
+                self._emit_device_change(device, "Appliance provisioning failed")
                 console.print(
                     f"  [red]✗ {device.intended_hostname} "
                     f"provisioning failed[/]"
                 )
                 self.state.errors.append(
-                    f"NTP provisioning failed for "
+                    f"Appliance provisioning failed for "
                     f"{device.intended_hostname}"
                 )
 
         return self.state
+
+    # Backward-compatible alias
+    run_ntp_provisioning = run_appliance_provisioning
 
     def run_factory_reset(
         self,
@@ -579,14 +600,23 @@ class Orchestrator:
         """Factory-reset infrastructure back to a ZTP-ready state.
 
         Resets devices in an order that preserves management connectivity:
-        1. Meinberg NTP devices (parallel — leaf devices)
-        2. HPE servers (parallel — independent via iLO)
-        3. Cisco network devices (inside-out by ascending BFS depth)
+        1. Appliance devices (parallel — leaf devices)
+        2. Servers (parallel — independent via BMC)
+        3. Network devices (inside-out by ascending BFS depth)
 
         Args:
             dry_run: Show what would be reset without executing.
-            device_types: Filter: "all", "cisco", "hpe", or "meinberg".
+            device_types: Filter: ``"all"``, ``"network"``, ``"server"``,
+                ``"appliance"``, or a legacy value like ``"cisco"``.
         """
+        # Support legacy device_types values
+        _legacy_map = {
+            "cisco": "network",
+            "hpe": "server",
+            "meinberg": "appliance",
+        }
+        device_types = _legacy_map.get(device_types, device_types)
+
         self.inventory = self._load_inventory()
         self.state.phase = DeploymentPhase.FACTORY_RESET
 
@@ -596,31 +626,31 @@ class Orchestrator:
         self.run_discovery()
         self.run_topology()
 
-        reset_cisco = device_types in ("all", "cisco")
-        reset_hpe = device_types in ("all", "hpe")
-        reset_meinberg = device_types in ("all", "meinberg")
+        reset_appliance = device_types in ("all", "appliance")
+        reset_server = device_types in ("all", "server")
+        reset_network = device_types in ("all", "network")
 
         errors: list[str] = []
 
-        # ── Phase 1: Meinberg NTP ─────────────────────────────────────
-        if reset_meinberg:
-            ntp_devices = self._get_devices_by_platform("meinberg_lantime")
-            if ntp_devices:
+        # ── Phase 1: Appliance devices ────────────────────────────────
+        if reset_appliance:
+            appliances = self._get_appliance_devices()
+            if appliances:
                 if dry_run:
-                    for d in ntp_devices:
+                    for d in appliances:
                         console.print(
                             f"  [yellow]DRY RUN — would reset "
                             f"{d.intended_hostname or d.ip}[/]"
                         )
                 else:
-                    ntp_errors = self._reset_meinberg_devices(ntp_devices)
-                    errors.extend(ntp_errors)
+                    appliance_errors = self._reset_appliance_devices(appliances)
+                    errors.extend(appliance_errors)
             else:
-                console.print("  [dim]No Meinberg NTP devices to reset[/]")
+                console.print("  [dim]No appliance devices to reset[/]")
 
-        # ── Phase 2: HPE servers ──────────────────────────────────────
-        if reset_hpe:
-            servers = self._get_devices_by_platform_prefix("hpe_")
+        # ── Phase 2: Servers ──────────────────────────────────────────
+        if reset_server:
+            servers = self._get_server_devices()
             if servers:
                 if dry_run:
                     for d in servers:
@@ -629,17 +659,16 @@ class Orchestrator:
                             f"{d.intended_hostname or d.ip}[/]"
                         )
                 else:
-                    server_errors = self._reset_hpe_servers(servers)
+                    server_errors = self._reset_server_devices(servers)
                     errors.extend(server_errors)
             else:
-                console.print("  [dim]No HPE servers to reset[/]")
+                console.print("  [dim]No servers to reset[/]")
 
-        # ── Phase 3: Cisco network devices (inside-out) ───────────────
-        if reset_cisco:
+        # ── Phase 3: Network devices (inside-out) ─────────────────────
+        if reset_network:
             network_devices = self._get_network_devices()
             if network_devices:
                 if dry_run:
-                    # Show in inside-out order (ascending depth)
                     sorted_devs = sorted(
                         network_devices,
                         key=lambda d: d.bfs_depth if d.bfs_depth is not None else 999,
@@ -651,10 +680,10 @@ class Orchestrator:
                             f"(depth {d.bfs_depth})[/]"
                         )
                 else:
-                    cisco_errors = self._reset_network_devices(network_devices)
-                    errors.extend(cisco_errors)
+                    network_errors = self._reset_network_devices(network_devices)
+                    errors.extend(network_errors)
             else:
-                console.print("  [dim]No Cisco network devices to reset[/]")
+                console.print("  [dim]No network devices to reset[/]")
 
         # ── Summary ───────────────────────────────────────────────────
         self.state.errors.extend(errors)
@@ -675,19 +704,28 @@ class Orchestrator:
 
         return self.state
 
-    def _reset_meinberg_devices(
+    def _reset_appliance_devices(
         self, devices: list[DiscoveredDevice]
     ) -> list[str]:
-        """Reset Meinberg NTP devices in parallel."""
+        """Reset appliance devices in parallel via their registered driver."""
         from bare_metal_automation.common.parallel import run_independent_parallel
-        from bare_metal_automation.resetter.meinberg import MeinbergResetter
 
-        console.print("\n[bold]Resetting Meinberg NTP Devices (parallel)[/]")
-        resetter = MeinbergResetter(inventory=self.inventory)
+        console.print("\n[bold]Resetting Appliance Devices (parallel)[/]")
+
+        def _reset(device: DiscoveredDevice) -> bool:
+            spec = self.inventory.get_device_spec(device.serial) or {}
+            platform = spec.get("platform", "")
+            driver = DriverRegistry.get_appliance_driver(
+                platform, inventory=self.inventory
+            )
+            if driver is None:
+                logger.error("No appliance driver for platform: %s", platform)
+                return False
+            return driver.reset_device(device)
 
         results = run_independent_parallel(
             devices=devices,
-            operation=resetter.reset_device,
+            operation=_reset,
             max_workers=len(devices),
         )
 
@@ -702,19 +740,28 @@ class Orchestrator:
                 errors.append(f"Factory reset failed for {hostname}")
         return errors
 
-    def _reset_hpe_servers(
+    def _reset_server_devices(
         self, devices: list[DiscoveredDevice]
     ) -> list[str]:
-        """Reset HPE servers in parallel."""
+        """Reset servers in parallel via their registered driver."""
         from bare_metal_automation.common.parallel import run_independent_parallel
-        from bare_metal_automation.resetter.server import HPEServerResetter
 
-        console.print("\n[bold]Resetting HPE Servers (parallel)[/]")
-        resetter = HPEServerResetter(inventory=self.inventory)
+        console.print("\n[bold]Resetting Servers (parallel)[/]")
+
+        def _reset(device: DiscoveredDevice) -> bool:
+            spec = self.inventory.get_device_spec(device.serial) or {}
+            platform = spec.get("platform", "")
+            driver = DriverRegistry.get_server_driver(
+                platform, inventory=self.inventory
+            )
+            if driver is None:
+                logger.error("No server driver for platform: %s", platform)
+                return False
+            return driver.reset_server(device)
 
         results = run_independent_parallel(
             devices=devices,
-            operation=resetter.reset_server,
+            operation=_reset,
             max_workers=len(devices),
         )
 
@@ -732,19 +779,25 @@ class Orchestrator:
     def _reset_network_devices(
         self, devices: list[DiscoveredDevice]
     ) -> list[str]:
-        """Reset Cisco network devices in inside-out order (ascending depth)."""
+        """Reset network devices in inside-out order (ascending depth) via their driver."""
         from bare_metal_automation.common.parallel import run_parallel_by_depth_ascending
-        from bare_metal_automation.resetter.network import NetworkResetter
 
         console.print("\n[bold]Resetting Network Devices (inside-out by depth)[/]")
-        resetter = NetworkResetter(
-            inventory=self.inventory,
-            ssh_timeout=self.ssh_timeout,
-        )
+
+        def _reset(device: DiscoveredDevice) -> bool:
+            spec = self.inventory.get_device_spec(device.serial) or {}
+            platform = spec.get("platform", "")
+            driver = DriverRegistry.get_network_driver(
+                platform, inventory=self.inventory, ssh_timeout=self.ssh_timeout
+            )
+            if driver is None:
+                logger.error("No network driver for platform: %s", platform)
+                return False
+            return driver.reset_device(device)
 
         results = run_parallel_by_depth_ascending(
             devices=devices,
-            operation=resetter.reset_device,
+            operation=_reset,
             max_workers=4,
             stop_on_failure=True,
         )

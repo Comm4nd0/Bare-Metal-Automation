@@ -106,18 +106,10 @@ class Device(models.Model):
     mac = models.CharField(max_length=17, blank=True)
     serial = models.CharField(max_length=100, blank=True)
     platform = models.CharField(
-        max_length=30,
-        choices=[
-            ("cisco_ios", "Cisco IOS"),
-            ("cisco_iosxe", "Cisco IOS-XE"),
-            ("cisco_asa", "Cisco ASA"),
-            ("cisco_ftd", "Cisco FTD"),
-            ("hpe_dl325_gen10", "HPE DL325 Gen10"),
-            ("hpe_dl360_gen10", "HPE DL360 Gen10"),
-            ("hpe_dl380_gen10", "HPE DL380 Gen10"),
-            ("meinberg_lantime", "Meinberg LANTIME"),
-        ],
+        max_length=60,
         blank=True,
+        help_text="Platform identifier (e.g. cisco_iosxe, hpe_dl360_gen10). "
+                  "New vendors are auto-discovered via the driver registry.",
     )
     hostname = models.CharField(max_length=200, blank=True)
     intended_hostname = models.CharField(max_length=200, blank=True)
@@ -136,7 +128,7 @@ class Device(models.Model):
         blank=True,
     )
     state = models.CharField(
-        max_length=20,
+        max_length=30,
         choices=[
             ("unknown", "Unknown"),
             ("discovered", "Discovered"),
@@ -150,14 +142,14 @@ class Device(models.Model):
             ("bios_configured", "BIOS Configured"),
             ("raid_configuring", "RAID Configuring"),
             ("raid_configured", "RAID Configured"),
-            ("spp_installing", "SPP Installing"),
-            ("spp_installed", "SPP Installed"),
+            ("driver_pack_installing", "Driver Pack Installing"),
+            ("driver_pack_installed", "Driver Pack Installed"),
             ("os_installing", "OS Installing"),
             ("os_installed", "OS Installed"),
             ("os_configuring", "OS Configuring"),
             ("os_configured", "OS Configured"),
-            ("ilo_configuring", "iLO Configuring"),
-            ("ilo_configured", "iLO Configured"),
+            ("bmc_configuring", "BMC Configuring"),
+            ("bmc_configured", "BMC Configured"),
             ("provisioning", "Provisioning"),
             ("provisioned", "Provisioned"),
             ("resetting", "Resetting"),
@@ -165,6 +157,7 @@ class Device(models.Model):
             ("factory_reset", "Factory Reset"),
             ("powered_off", "Powered Off"),
             ("failed", "Failed"),
+            ("vendor_step", "Vendor Step"),
         ],
         default="unknown",
     )
@@ -194,14 +187,14 @@ class Device(models.Model):
             "bios_configured": "primary",
             "raid_configuring": "warning",
             "raid_configured": "primary",
-            "spp_installing": "warning",
-            "spp_installed": "primary",
+            "driver_pack_installing": "warning",
+            "driver_pack_installed": "primary",
             "os_installing": "warning",
             "os_installed": "primary",
             "os_configuring": "warning",
             "os_configured": "primary",
-            "ilo_configuring": "warning",
-            "ilo_configured": "primary",
+            "bmc_configuring": "warning",
+            "bmc_configured": "primary",
             "provisioning": "warning",
             "provisioned": "success",
             "resetting": "warning",
@@ -209,6 +202,7 @@ class Device(models.Model):
             "factory_reset": "secondary",
             "powered_off": "dark",
             "failed": "danger",
+            "vendor_step": "warning",
         }.get(self.state, "secondary")
 
     @property
