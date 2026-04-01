@@ -15,7 +15,6 @@ import hashlib
 import textwrap
 from pathlib import Path
 from typing import Any
-from unittest.mock import MagicMock, patch
 
 import pytest
 import yaml
@@ -39,7 +38,6 @@ from bare_metal_automation.config_media.renderer import (
     _build_mission_tenants,
     _build_vlan_contexts,
 )
-
 
 # ── Fixtures ──────────────────────────────────────────────────────────────
 

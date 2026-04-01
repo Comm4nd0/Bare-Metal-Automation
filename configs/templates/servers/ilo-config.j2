@@ -1,0 +1,242 @@
+{# ================================================================
+   BMA — HPE iLO Configuration
+   Host  : {{ hostname }}
+   Serial: {{ serial }}
+   Site  : {{ site_slug | upper }}
+   Generated: {{ "now" | default("") }}
+
+   This template produces a JSON payload for the HPE iLO REST API
+   (iLO 5 / iLO 6) to configure network, users, SNMP, NTP, and
+   hostname settings during zero-touch provisioning.
+   ================================================================ #}
+{
+  "Oem": {
+    "Hpe": {
+      "Description": "BMA zero-touch iLO configuration for {{ hostname }}"
+    }
+  },
+
+  "hostname": "{{ ilo_hostname | default(hostname + '-ilo') }}",
+
+  "network": {
+    "interface": {
+      "DHCPv4": {
+        "Enabled": {{ ilo_dhcp_enabled | default(false) | lower }},
+        "UseDNSServers": {{ ilo_dhcp_dns | default(false) | lower }},
+        "UseNTPServers": {{ ilo_dhcp_ntp | default(false) | lower }},
+        "UseDomainName": {{ ilo_dhcp_domain | default(false) | lower }}
+      },
+      "IPv4Addresses": [
+        {
+          "Address": "{{ ilo_ip_address }}",
+          "SubnetMask": "{{ ilo_subnet_mask }}",
+          "Gateway": "{{ ilo_gateway }}"
+        }
+      ],
+{% if ilo_ipv6_enabled | default(false) %}
+      "DHCPv6": {
+        "Enabled": {{ ilo_dhcpv6_enabled | default(false) | lower }}
+      },
+      "IPv6Addresses": [
+        {
+          "Address": "{{ ilo_ipv6_address }}",
+          "PrefixLength": {{ ilo_ipv6_prefix_length | default(64) }}
+        }
+      ],
+      "IPv6DefaultGateway": "{{ ilo_ipv6_gateway }}",
+{% endif %}
+      "VLAN": {
+        "Enabled": {{ ilo_vlan_enabled | default(true) | lower }},
+        "VLANId": {{ ilo_vlan_id | default(600) }}
+      },
+      "FullDuplex": true,
+      "SpeedMbps": {{ ilo_speed_mbps | default(1000) }}
+    },
+
+    "dns": {
+      "DomainName": "{{ domain_name }}",
+      "SearchDomains": [
+{% for domain in dns_search_domains | default([domain_name]) %}
+        "{{ domain }}"{% if not loop.last %},{% endif %}
+
+{% endfor %}
+      ],
+      "DNSServers": [
+{% for dns in dns_servers %}
+        "{{ dns }}"{% if not loop.last %},{% endif %}
+
+{% endfor %}
+      ]
+    }
+  },
+
+  "datetime": {
+    "NTPServers": [
+{% for ntp in ntp_servers %}
+      "{{ ntp }}"{% if not loop.last %},{% endif %}
+
+{% endfor %}
+    ],
+    "TimeZone": {
+      "Name": "{{ ilo_timezone | default('UTC') }}"
+    },
+    "ConfigurationSettings": "UseNTPServers"
+  },
+
+  "access_settings": {
+    "AuthenticationFailureLogging": "Enabled",
+    "AuthenticationFailureDelaySeconds": 10,
+    "MinPasswordLength": {{ ilo_min_password_length | default(12) }},
+    "IdleConnectionTimeoutMinutes": {{ ilo_idle_timeout | default(30) }},
+    "ServerFQDN": "{{ ilo_hostname | default(hostname + '-ilo') }}.{{ domain_name }}"
+  },
+
+  "user_accounts": [
+    {
+      "UserName": "{{ ilo_admin_user | default('bma-admin') }}",
+      "Password": "{{ ilo_admin_password }}",
+      "RoleId": "Administrator",
+      "Oem": {
+        "Hpe": {
+          "Privileges": {
+            "LoginPriv": true,
+            "RemoteConsolePriv": true,
+            "VirtualMediaPriv": true,
+            "VirtualPowerAndResetPriv": true,
+            "iLOConfigPriv": true,
+            "UserConfigPriv": true,
+            "HostBIOSConfigPriv": true,
+            "HostNICConfigPriv": true,
+            "HostStorageConfigPriv": true,
+            "SystemRecoveryConfigPriv": true
+          }
+        }
+      }
+    },
+{% if ilo_readonly_user is defined %}
+    {
+      "UserName": "{{ ilo_readonly_user }}",
+      "Password": "{{ ilo_readonly_password }}",
+      "RoleId": "ReadOnly",
+      "Oem": {
+        "Hpe": {
+          "Privileges": {
+            "LoginPriv": true,
+            "RemoteConsolePriv": false,
+            "VirtualMediaPriv": false,
+            "VirtualPowerAndResetPriv": false,
+            "iLOConfigPriv": false,
+            "UserConfigPriv": false,
+            "HostBIOSConfigPriv": false,
+            "HostNICConfigPriv": false,
+            "HostStorageConfigPriv": false,
+            "SystemRecoveryConfigPriv": false
+          }
+        }
+      }
+    },
+{% endif %}
+{% if ilo_operator_user is defined %}
+    {
+      "UserName": "{{ ilo_operator_user }}",
+      "Password": "{{ ilo_operator_password }}",
+      "RoleId": "Operator",
+      "Oem": {
+        "Hpe": {
+          "Privileges": {
+            "LoginPriv": true,
+            "RemoteConsolePriv": true,
+            "VirtualMediaPriv": true,
+            "VirtualPowerAndResetPriv": true,
+            "iLOConfigPriv": false,
+            "UserConfigPriv": false,
+            "HostBIOSConfigPriv": false,
+            "HostNICConfigPriv": false,
+            "HostStorageConfigPriv": false,
+            "SystemRecoveryConfigPriv": false
+          }
+        }
+      }
+    },
+{% endif %}
+    {
+      "_comment": "Disable default Administrator account",
+      "UserName": "Administrator",
+      "Password": null,
+      "RoleId": "NoAccess"
+    }
+  ],
+
+  "snmp": {
+    "Enabled": {{ ilo_snmp_enabled | default(true) | lower }},
+    "Port": {{ ilo_snmp_port | default(161) }},
+{% if snmp_community_ro %}
+    "ReadCommunity": "{{ snmp_community_ro }}",
+{% endif %}
+    "Contact": "BMA-NOC",
+    "Location": "{{ site_slug | upper }}-{{ hostname }}",
+{% if ilo_snmp_trap_destinations | default([]) %}
+    "TrapDestinations": [
+{% for trap in ilo_snmp_trap_destinations %}
+      {
+        "TrapDestination": "{{ trap.address }}",
+        "TrapCommunity": "{{ trap.community | default(snmp_community_ro) }}"
+      }{% if not loop.last %},{% endif %}
+
+{% endfor %}
+    ],
+{% endif %}
+    "AlertsEnabled": {{ ilo_snmp_alerts | default(true) | lower }}
+  },
+
+  "security": {
+    "SSLCertificateSettings": {
+      "CertificateSigningRequest": {
+        "CommonName": "{{ ilo_hostname | default(hostname + '-ilo') }}.{{ domain_name }}",
+        "Organization": "{{ ilo_cert_org | default('BMA') }}",
+        "OrganizationalUnit": "{{ ilo_cert_ou | default('Infrastructure') }}",
+        "Country": "{{ ilo_cert_country | default('US') }}",
+        "State": "{{ ilo_cert_state | default('') }}",
+        "City": "{{ ilo_cert_city | default('') }}"
+      }
+    },
+    "SSHHostKey": {
+      "KeyType": "RSA",
+      "KeyLength": 2048
+    },
+    "LoginSecurityBanner": {
+      "Enabled": true,
+      "BannerText": "AUTHORIZED ACCESS ONLY - {{ hostname | upper }} iLO - {{ site_slug | upper }}"
+    }
+  },
+
+{% if syslog_server %}
+  "remote_syslog": {
+    "Enabled": true,
+    "Server": "{{ syslog_server }}",
+    "Port": {{ ilo_syslog_port | default(514) }}
+  },
+{% endif %}
+
+{% if ilo_directory_enabled | default(false) %}
+  "directory": {
+    "Enabled": true,
+    "ServerAddress": "{{ ad_server }}",
+    "ServerPort": {{ ilo_ldap_port | default(636) }},
+    "Authentication": "DefaultSchema",
+    "BaseDN": "{{ ilo_base_dn }}",
+    "BindDN": "{{ ilo_bind_dn }}",
+    "BindPassword": "{{ ilo_bind_password }}",
+    "GroupDN": "{{ ilo_admin_group_dn }}"
+  },
+{% endif %}
+
+  "virtual_media": {
+    "AutomaticBootOrder": true
+  },
+
+  "power_settings": {
+    "AutoPowerOn": "{{ ilo_auto_power_on | default('RestoreLastState') }}",
+    "PowerOnDelay": "{{ ilo_power_on_delay | default('Minimum') }}"
+  }
+}

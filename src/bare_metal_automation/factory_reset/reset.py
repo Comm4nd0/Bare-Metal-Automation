@@ -26,7 +26,6 @@ from dataclasses import dataclass, field
 
 from bare_metal_automation.models import (
     DeploymentInventory,
-    DeviceState,
     DiscoveredDevice,
 )
 
@@ -114,49 +113,57 @@ class FactoryResetOrchestrator:
     def phase_vm_teardown(self) -> bool:
         """Gracefully shut down all VMs managed by vCenter.
 
-        TODO: Implement using pyVmomi (vSphere SDK for Python):
-          - connect to vCenter with stored credentials
-          - enumerate all VMs across all compute clusters
-          - issue GracefulShutdown for each VM
-          - wait for power-off confirmation
-          - unregister VMs from inventory
+        Requires pyVmomi (vSphere SDK for Python) — not yet implemented.
+        Will connect to vCenter, enumerate VMs, issue GracefulShutdown,
+        wait for power-off, and unregister VMs from inventory.
         """
-        logger.info("VM teardown: stubbed — no VMware API integration yet")
         if self.dry_run:
             logger.info("[DRY RUN] Would power off and unregister all VMs")
-        return True  # Non-blocking until VMware sprint
+            return True
+
+        raise NotImplementedError(
+            "VMware VM teardown is not yet implemented. "
+            "This phase requires pyVmomi (vSphere SDK). "
+            "Set dry_run=True to skip, or remove this phase from the sequence."
+        )
 
     # ── Phase 2: NSX teardown ──────────────────────────────────────────────
 
     def phase_nsx_teardown(self) -> bool:
         """Remove NSX-T logical network constructs.
 
-        TODO: Implement using the NSX-T REST API (vmware.nsx):
-          - delete logical ports, switches, routers
-          - remove transport nodes
-          - uninstall NSX fabric from ESXi hosts
-          - delete NSX manager configuration
+        Requires NSX-T REST API (vmware.nsx) — not yet implemented.
+        Will delete logical ports, switches, routers, remove transport
+        nodes, uninstall NSX fabric, and delete NSX manager configuration.
         """
-        logger.info("NSX teardown: stubbed — no NSX API integration yet")
         if self.dry_run:
             logger.info("[DRY RUN] Would remove all NSX-T overlay constructs")
-        return True  # Non-blocking until NSX sprint
+            return True
+
+        raise NotImplementedError(
+            "NSX-T teardown is not yet implemented. "
+            "This phase requires the NSX-T REST API. "
+            "Set dry_run=True to skip, or remove this phase from the sequence."
+        )
 
     # ── Phase 3: vCenter teardown ──────────────────────────────────────────
 
     def phase_vcenter_teardown(self) -> bool:
         """Remove ESXi hosts from vCenter and prepare for bare-metal wipe.
 
-        TODO: Implement using pyVmomi:
-          - enter maintenance mode on all ESXi hosts
-          - remove hosts from clusters
-          - destroy clusters and datacenter objects
-          - power off vCenter VM (via host directly, not via vCenter)
+        Requires pyVmomi (vSphere SDK) — not yet implemented.
+        Will enter maintenance mode on ESXi hosts, remove from clusters,
+        destroy datacenter objects, and power off vCenter VM.
         """
-        logger.info("vCenter teardown: stubbed — no VMware API integration yet")
         if self.dry_run:
             logger.info("[DRY RUN] Would remove vCenter and ESXi inventory")
-        return True  # Non-blocking until vCenter sprint
+            return True
+
+        raise NotImplementedError(
+            "vCenter teardown is not yet implemented. "
+            "This phase requires pyVmomi (vSphere SDK). "
+            "Set dry_run=True to skip, or remove this phase from the sequence."
+        )
 
     # ── Phase 4: Server wipe ───────────────────────────────────────────────
 
@@ -301,5 +308,5 @@ class FactoryResetOrchestrator:
             sock = socket.create_connection((device.ip, 22), timeout=5)
             sock.close()
             return True
-        except (socket.timeout, ConnectionRefusedError, OSError):
+        except (TimeoutError, ConnectionRefusedError, OSError):
             return False

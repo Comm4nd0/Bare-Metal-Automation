@@ -101,7 +101,7 @@ class CablingIntent:
     rules: list[CablingRule] = field(default_factory=list)
 
     @classmethod
-    def from_file(cls, path: str | Path) -> "CablingIntent":
+    def from_file(cls, path: str | Path) -> CablingIntent:
         return cls(rules=load_cabling_rules(path))
 
     def for_device(self, hostname: str) -> list[CablingRule]:

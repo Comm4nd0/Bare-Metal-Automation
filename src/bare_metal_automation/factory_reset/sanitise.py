@@ -13,7 +13,7 @@ Three methods are supported:
 
 - **VM disk zeroing** — writes zeros to VM virtual disks before deletion so
   that residual data cannot be recovered from thin-provisioned storage.
-  TODO: Implement via VMware API (requires vCenter / ESXi connection).
+  Not yet implemented — requires pyVmomi (vSphere SDK).
 
 Each method records its outcome so a sanitisation certificate can be issued.
 """
@@ -23,7 +23,7 @@ from __future__ import annotations
 import logging
 import time
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from bare_metal_automation.models import DiscoveredDevice
 
@@ -43,7 +43,7 @@ class EraseRecord:
     target: str             # drive path, volume name, or "all"
     success: bool
     timestamp: str = field(
-        default_factory=lambda: datetime.now(timezone.utc).isoformat()
+        default_factory=lambda: datetime.now(UTC).isoformat()
     )
     error: str = ""
 
@@ -197,32 +197,14 @@ class DataSanitiser:
     ) -> list[EraseRecord]:
         """Zero virtual machine disks before deletion.
 
-        TODO: Implement using pyVmomi (vSphere SDK for Python):
-          1. Connect to vCenter with provided credentials
-          2. For each VM in vm_list:
-             a. Power off the VM if running
-             b. For each virtual disk (VMDK):
-                - Reconfigure VM to use VMDK as eager-zero thick (forces zeroing)
-                - Or run 'dd if=/dev/zero' from inside the guest OS
-          3. Record the outcome per-disk
-
-        The current implementation logs a warning and returns empty records.
+        Requires pyVmomi (vSphere SDK for Python) — not yet implemented.
+        Will connect to vCenter, power off VMs, and zero each VMDK.
         """
-        logger.warning(
-            "VM disk zeroing not yet implemented — "
-            "requires vSphere API (pyVmomi) integration"
+        raise NotImplementedError(
+            "VM disk zeroing is not yet implemented. "
+            "This operation requires pyVmomi (vSphere SDK). "
+            "Ensure VMware integration is complete before calling this method."
         )
-        return [
-            EraseRecord(
-                device_serial="",
-                device_hostname=vm,
-                method="vm_disk_zero",
-                target="all",
-                success=False,
-                error="Not implemented — see TODO in sanitise.py",
-            )
-            for vm in vm_list
-        ]
 
     # ── Verification ──────────────────────────────────────────────────────
 

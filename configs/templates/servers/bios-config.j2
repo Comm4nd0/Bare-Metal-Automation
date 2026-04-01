@@ -1,0 +1,172 @@
+{# ================================================================
+   BMA — HPE BIOS Configuration
+   Host  : {{ hostname }}
+   Serial: {{ serial }}
+   Site  : {{ site_slug | upper }}
+   Generated: {{ "now" | default("") }}
+
+   This template produces a JSON payload for HPE iLO REST API
+   (Redfish) to configure BIOS settings: boot order, performance
+   profile, virtualization, power management, and security.
+   Target: HPE ProLiant Gen10 / Gen10 Plus / Gen11
+   ================================================================ #}
+{
+  "Attributes": {
+    "_comment": "BMA BIOS configuration for {{ hostname }}",
+
+    {# ============================================================
+       Boot Order Configuration
+       ============================================================ #}
+    "BootMode": "{{ bios_boot_mode | default('Uefi') }}",
+{% if bios_boot_mode | default('Uefi') == 'Uefi' %}
+    "UefiOptimizedBoot": "Enabled",
+    "SecureBootStatus": "{{ bios_secure_boot | default('Enabled') }}",
+{% endif %}
+    "BootOrderPolicy": "{{ bios_boot_order_policy | default('RetryIndefinitely') }}",
+
+{% if bios_boot_order is defined %}
+    "PersistentBootConfigOrder": [
+{% for device in bios_boot_order %}
+      "{{ device }}"{% if not loop.last %},{% endif %}
+
+{% endfor %}
+    ],
+{% else %}
+    "PersistentBootConfigOrder": [
+{% if bios_pxe_boot_first | default(true) %}
+      "NIC.Slot.1.1.IPv4",
+      "NIC.Slot.1.1.IPv6",
+{% endif %}
+      "HD.EmbRAID.1.1",
+      "HD.EmbRAID.1.2",
+      "Generic.USB.1.1",
+      "CD/DVD.EmbSATA.2.1"
+    ],
+{% endif %}
+
+    "NetworkBootRetryCount": {{ bios_network_boot_retry | default(2) }},
+    "NetworkBootRetry": "Enabled",
+
+    {# ============================================================
+       Performance Profile
+       ============================================================ #}
+{% if bios_workload_profile is defined %}
+    "WorkloadProfile": "{{ bios_workload_profile }}",
+{% else %}
+{% if bios_role | default('general') == 'virtualization' %}
+    "WorkloadProfile": "Virtualization-MaxPerformance",
+{% elif bios_role | default('general') == 'database' %}
+    "WorkloadProfile": "TransactionalApplicationProcessing",
+{% elif bios_role | default('general') == 'hpc' %}
+    "WorkloadProfile": "HighPerformanceCompute(HPC)",
+{% else %}
+    "WorkloadProfile": "GeneralPowerEfficientCompute",
+{% endif %}
+{% endif %}
+
+    "PowerRegulator": "{{ bios_power_regulator | default('DynamicPowerSavings') }}",
+    "MinProcIdlePower": "{{ bios_min_proc_idle | default('C6') }}",
+    "EnergyPerfBias": "{{ bios_energy_perf_bias | default('BalancedPerformance') }}",
+    "CollabPowerControl": "{{ bios_collab_power | default('Enabled') }}",
+
+    {# ============================================================
+       Processor Settings
+       ============================================================ #}
+    "ProcHyperthreading": "{{ bios_hyperthreading | default('Enabled') }}",
+    "ProcTurbo": "{{ bios_proc_turbo | default('Enabled') }}",
+    "ProcX2Apic": "{{ bios_x2apic | default('Enabled') }}",
+{% if bios_role | default('general') == 'virtualization' or bios_virtualization | default(true) %}
+    "ProcVirtualization": "Enabled",
+    "ProcAmd-V": "Enabled",
+    "IntelTxt": "{{ bios_intel_txt | default('Disabled') }}",
+    "Iommu": "Enabled",
+    "SriovSystemEnable": "Enabled",
+{% else %}
+    "ProcVirtualization": "{{ bios_proc_virtualization | default('Enabled') }}",
+    "SriovSystemEnable": "{{ bios_sriov | default('Disabled') }}",
+{% endif %}
+
+    {# ============================================================
+       Memory Settings
+       ============================================================ #}
+    "MemPatrolScrubbing": "{{ bios_mem_scrubbing | default('Enabled') }}",
+    "MemRefreshRate": "{{ bios_mem_refresh | default('1x') }}",
+    "MaxMemBusFreqMHz": "{{ bios_max_mem_freq | default('Auto') }}",
+    "NodeInterleaving": "{{ bios_node_interleaving | default('Disabled') }}",
+    "AdvancedMemProtection": "{{ bios_mem_protection | default('AdvancedEcc') }}",
+{% if bios_persistent_memory | default(false) %}
+    "PersistentMemAddressRangeScrub": "Enabled",
+    "PersistentMemBackupPowerPolicy": "WaitForBackupPower",
+{% endif %}
+    "MemFastTraining": "{{ bios_mem_fast_training | default('Enabled') }}",
+
+    {# ============================================================
+       Storage / Embedded RAID
+       ============================================================ #}
+    "EmbeddedSata": "{{ bios_embedded_sata | default('Ahci') }}",
+{% if bios_embedded_raid | default(false) %}
+    "DynamicSmartArrayRaid": "Enabled",
+{% endif %}
+    "EmbNicEnable": "{{ bios_emb_nic | default('Auto') }}",
+    "NicBoot1": "{{ bios_nic_boot1 | default('NetworkBoot') }}",
+
+    {# ============================================================
+       USB and Serial Settings
+       ============================================================ #}
+    "UsbControl": "{{ bios_usb_control | default('UsbEnabled') }}",
+    "InternalSDCardSlot": "{{ bios_internal_sd | default('Disabled') }}",
+    "EmbeddedSerialPort": "{{ bios_serial_port | default('Com1Irq4') }}",
+    "EmbeddedUefiShell": "{{ bios_uefi_shell | default('Enabled') }}",
+    "VirtualSerialPort": "{{ bios_virtual_serial | default('Com2Irq3') }}",
+
+    {# ============================================================
+       Power Management
+       ============================================================ #}
+    "AutoPowerOn": "{{ bios_auto_power_on | default('RestoreLastState') }}",
+    "PostDiscoveryMode": "{{ bios_post_mode | default('Auto') }}",
+    "PowerOnDelay": "{{ bios_power_on_delay | default('NoDelay') }}",
+    "RedundantPowerSupply": "{{ bios_redundant_psu | default('BalancedMode') }}",
+    "ThermalConfig": "{{ bios_thermal_config | default('OptimalCooling') }}",
+    "ThermalShutdown": "{{ bios_thermal_shutdown | default('Enabled') }}",
+
+    {# ============================================================
+       Security Settings
+       ============================================================ #}
+    "AssetTagProtection": "{{ bios_asset_tag_protection | default('Unlocked') }}",
+{% if bios_tpm_enabled | default(true) %}
+    "TpmType": "{{ bios_tpm_type | default('Tpm20') }}",
+    "TpmState": "PresentEnabled",
+    "TpmActivePcrs": "{{ bios_tpm_pcrs | default('Sha256') }}",
+{% endif %}
+    "F11BootMenu": "Enabled",
+    "ProcessorJitterControl": "{{ bios_jitter_control | default('Disabled') }}",
+
+    {# ============================================================
+       Console and Remote Access
+       ============================================================ #}
+    "SerialConsoleBaudRate": "{{ bios_serial_baud | default('115200') }}",
+    "SerialConsoleEmulation": "{{ bios_serial_emulation | default('Vt100Plus') }}",
+    "EmbVideoConnection": "{{ bios_video_connection | default('Auto') }}",
+{% if bios_consistent_device_naming | default(true) %}
+    "ConsistentDevNaming": "LomsAndSlots",
+{% endif %}
+
+    {# ============================================================
+       Custom / Site-specific Overrides
+       ============================================================ #}
+{% for key, value in bios_custom_attributes | default({}) | dictsort %}
+    "{{ key }}": "{{ value }}"{% if not loop.last %},{% endif %}
+
+{% endfor %}
+{% if not bios_custom_attributes | default({}) %}
+    "ServerName": "{{ hostname }}",
+    "ServerOtherInfo": "Site:{{ site_slug | upper }} Serial:{{ serial }}",
+    "AssetTag": "{{ bios_asset_tag | default('BMA-' + serial) }}"
+{% else %}
+,
+    "ServerName": "{{ hostname }}",
+    "ServerOtherInfo": "Site:{{ site_slug | upper }} Serial:{{ serial }}",
+    "AssetTag": "{{ bios_asset_tag | default('BMA-' + serial) }}"
+{% endif %}
+  }
+}

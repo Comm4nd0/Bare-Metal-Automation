@@ -14,7 +14,6 @@ from __future__ import annotations
 import logging
 import re
 import socket
-import time
 from dataclasses import dataclass, field
 
 from bare_metal_automation.models import DiscoveredDevice
@@ -293,7 +292,7 @@ class ConfigValidator:
             sock = socket.create_connection((management_ip, 22), timeout=timeout)
             sock.close()
             result.ok(f"Management IP {management_ip} reachable on port 22")
-        except (socket.timeout, ConnectionRefusedError, OSError) as e:
+        except (TimeoutError, ConnectionRefusedError, OSError) as e:
             result.fail(
                 f"Management IP {management_ip} not reachable: {e}"
             )

@@ -16,7 +16,7 @@ import logging
 from typing import NamedTuple
 
 from bare_metal_automation.cabling.intent import CablingRule
-from bare_metal_automation.models import CDPNeighbour, CablingResult
+from bare_metal_automation.models import CablingResult, CDPNeighbour
 
 logger = logging.getLogger(__name__)
 

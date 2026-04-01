@@ -1,0 +1,21 @@
+services:
+  web:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      - BMA_DB_ENGINE=django.db.backends.sqlite3
+      - BMA_CHANNEL_BACKEND=channels_redis.core.RedisChannelLayer
+      - REDIS_URL=redis://redis:6379/0
+    volumes:
+      - db-data:/app/db
+    depends_on:
+      - redis
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+
+volumes:
+  db-data:

@@ -41,9 +41,7 @@ def _run_deployment(
         from bare_metal_automation.dashboard.events import (
             deployment_log,
             device_status_changed,
-            phase_completed,
             phase_started,
-            topology_updated,
         )
         from bare_metal_automation.dashboard.models import Deployment, DeploymentLog, Device
         from bare_metal_automation.inventory import load_inventory

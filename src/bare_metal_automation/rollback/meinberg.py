@@ -10,20 +10,14 @@ import requests
 from requests.auth import HTTPBasicAuth
 
 from bare_metal_automation.models import DeviceState, DiscoveredDevice
+from bare_metal_automation.settings import (
+    MEINBERG_API_BASE,
+    MEINBERG_DEFAULT_PASSWORD,
+    MEINBERG_DEFAULT_USER,
+    REBOOT_WAIT,
+)
 
 logger = logging.getLogger(__name__)
-
-# Meinberg web API paths
-MEINBERG_API_BASE = "/api/v1"
-
-# Default credentials
-MEINBERG_DEFAULT_USER = "admin"
-MEINBERG_DEFAULT_PASSWORD = ""
-
-# Post-reset wait time
-REBOOT_WAIT = 60
-POLL_TIMEOUT = 300
-POLL_INTERVAL = 15
 
 
 class MeinbergResetter:

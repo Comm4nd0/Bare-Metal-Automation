@@ -29,8 +29,8 @@ import json
 import logging
 import os
 import uuid
-from dataclasses import asdict, dataclass, field
-from datetime import datetime, timezone
+from dataclasses import asdict, dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 
 from bare_metal_automation.models import DiscoveredDevice
@@ -128,7 +128,7 @@ class CertificateGenerator:
             device_hostname=device.intended_hostname or device.hostname or device.ip,
             device_platform=device.device_platform or "",
             method=method,
-            timestamp=datetime.now(timezone.utc).isoformat(),
+            timestamp=datetime.now(UTC).isoformat(),
             operator=self.operator,
             deployment_name=self.deployment_name,
             success=success,
@@ -141,7 +141,7 @@ class CertificateGenerator:
         Filename: ``{output_dir}/{timestamp}_{serial}.json``
         """
         self.output_dir.mkdir(parents=True, exist_ok=True)
-        ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        ts = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
         filename = f"{ts}_{cert.device_serial}.json"
         path = self.output_dir / filename
 
@@ -152,7 +152,7 @@ class CertificateGenerator:
     def save_text(self, cert: SanitisationCertificate) -> Path:
         """Write the human-readable certificate alongside the JSON version."""
         self.output_dir.mkdir(parents=True, exist_ok=True)
-        ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        ts = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
         filename = f"{ts}_{cert.device_serial}.txt"
         path = self.output_dir / filename
 

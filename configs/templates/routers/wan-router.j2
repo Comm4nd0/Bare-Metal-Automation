@@ -1,0 +1,332 @@
+!
+! ============================================================
+!  BMA — {{ hostname }}
+!  Role  : WAN / Border Router
+!          BGP peering, WAN interfaces, NAT, route-maps,
+!          prefix-lists, WAN link redundancy.
+!  Serial: {{ serial }}
+!  Site  : {{ site_slug | upper }}
+!  Generated: {{ "now" | default("") }}
+! ============================================================
+!
+hostname {{ hostname }}
+ip domain name {{ domain_name }}
+!
+! -- Service hardening ----------------------------------------
+no service pad
+service tcp-keepalives-in
+service tcp-keepalives-out
+service timestamps log datetime msec localtime show-timezone
+service timestamps debug datetime msec localtime show-timezone
+service password-encryption
+no ip source-route
+no ip gratuitous-arps
+no ip finger
+no ip http server
+no ip http secure-server
+no ip bootp server
+no cdp run
+!
+! -- Local auth -----------------------------------------------
+aaa new-model
+{% if tacacs_key %}
+tacacs server TACACS-PRIMARY
+ address ipv4 {{ ad_server }}
+ key {{ tacacs_key }}
+ timeout 5
+!
+aaa group server tacacs+ BMA-TACACS
+ server name TACACS-PRIMARY
+!
+aaa authentication login default group BMA-TACACS local
+aaa authorization exec default group BMA-TACACS local if-authenticated
+aaa accounting exec default start-stop group BMA-TACACS
+{% else %}
+aaa authentication login default local
+{% endif %}
+!
+username admin privilege 15 secret {{ enable_secret }}
+enable secret {{ enable_secret }}
+!
+! -- SSH ------------------------------------------------------
+crypto key generate rsa modulus 4096
+ip ssh version 2
+ip ssh time-out 60
+ip ssh authentication-retries 3
+!
+! -- NTP ------------------------------------------------------
+{% for ntp in ntp_servers %}
+ntp server {{ ntp }} prefer
+{% endfor %}
+clock timezone UTC 0 0
+!
+! -- DNS ------------------------------------------------------
+{% for dns in dns_servers %}
+ip name-server {{ dns }}
+{% endfor %}
+!
+! -- Logging --------------------------------------------------
+{% if syslog_server %}
+logging host {{ syslog_server }}
+logging trap informational
+{% endif %}
+logging buffered 32768
+no logging console
+!
+! -- SNMP -----------------------------------------------------
+{% if snmp_community_ro %}
+snmp-server community {{ snmp_community_ro }} RO
+snmp-server contact BMA-NOC
+snmp-server location {{ site_slug | upper }}-WAN
+{% endif %}
+!
+! ============================================================
+!  Loopback — Router ID
+! ============================================================
+!
+interface Loopback0
+ description ROUTER-ID
+ ip address {{ router_id }} 255.255.255.255
+ no shutdown
+!
+! ============================================================
+!  WAN Interfaces
+! ============================================================
+!
+{% for wan in wan_interfaces %}
+interface {{ wan.name }}
+ description {{ wan.description }}
+ ip address {{ wan.ip_address }} {{ wan.ip_mask }}
+ ip nat outside
+ ip virtual-reassembly in
+{% if wan.bandwidth is defined %}
+ bandwidth {{ wan.bandwidth }}
+{% endif %}
+{% if wan.mtu is defined %}
+ mtu {{ wan.mtu }}
+{% endif %}
+ no cdp enable
+ no shutdown
+!
+{% endfor %}
+!
+! ============================================================
+!  LAN / Inside Interface — trunk to core switch
+! ============================================================
+!
+{% for iface in lan_interfaces %}
+interface {{ iface.name }}
+ description {{ iface.description }} — INSIDE
+ ip address {{ iface.ip_address }} {{ iface.ip_mask }}
+ ip nat inside
+ no shutdown
+!
+{% endfor %}
+!
+! ============================================================
+!  Management Interface
+! ============================================================
+!
+interface Vlan100
+ description MGMT — {{ hostname }}
+ ip address {{ mgmt_ip }} {{ mgmt_mask }}
+ no shutdown
+!
+! ============================================================
+!  Prefix Lists
+! ============================================================
+!
+! Advertised prefixes — what we announce to BGP peers
+ip prefix-list PL-ADVERTISE-OUT seq 5 permit {{ site_prefix }} {{ site_prefix_len }}
+{% for prefix in advertised_prefixes | default([]) %}
+ip prefix-list PL-ADVERTISE-OUT seq {{ loop.index * 5 + 5 }} permit {{ prefix.network }} {{ prefix.mask }}
+{% endfor %}
+ip prefix-list PL-ADVERTISE-OUT seq 999 deny 0.0.0.0/0 le 32
+!
+! Inbound prefix filter — reject bogons and our own space
+ip prefix-list PL-PEER-IN seq 5 deny 0.0.0.0/0
+ip prefix-list PL-PEER-IN seq 10 deny 10.0.0.0/8 le 32
+ip prefix-list PL-PEER-IN seq 15 deny 172.16.0.0/12 le 32
+ip prefix-list PL-PEER-IN seq 20 deny 192.168.0.0/16 le 32
+ip prefix-list PL-PEER-IN seq 25 deny 169.254.0.0/16 le 32
+ip prefix-list PL-PEER-IN seq 30 deny 127.0.0.0/8 le 32
+ip prefix-list PL-PEER-IN seq 35 deny 224.0.0.0/4 le 32
+ip prefix-list PL-PEER-IN seq 40 deny {{ site_prefix }} {{ site_prefix_len }}
+ip prefix-list PL-PEER-IN seq 999 permit 0.0.0.0/0 le 32
+!
+! ============================================================
+!  Route Maps
+! ============================================================
+!
+route-map RM-BGP-PEER-OUT permit 10
+ match ip address prefix-list PL-ADVERTISE-OUT
+ set community {{ bgp_community | default("no-export") }}
+!
+route-map RM-BGP-PEER-OUT deny 999
+!
+route-map RM-BGP-PEER-IN permit 10
+ match ip address prefix-list PL-PEER-IN
+ set local-preference {{ bgp_local_pref | default(100) }}
+!
+route-map RM-BGP-PEER-IN deny 999
+!
+{% if wan_interfaces | length > 1 %}
+! Primary / backup path selection via local-preference
+route-map RM-BGP-PRIMARY-IN permit 10
+ match ip address prefix-list PL-PEER-IN
+ set local-preference {{ bgp_primary_local_pref | default(200) }}
+!
+route-map RM-BGP-PRIMARY-IN deny 999
+!
+route-map RM-BGP-BACKUP-IN permit 10
+ match ip address prefix-list PL-PEER-IN
+ set local-preference {{ bgp_backup_local_pref | default(50) }}
+!
+route-map RM-BGP-BACKUP-IN deny 999
+!
+{% endif %}
+! ============================================================
+!  BGP
+! ============================================================
+!
+router bgp {{ bgp_asn }}
+ bgp router-id {{ router_id }}
+ bgp log-neighbor-changes
+ no bgp default ipv4-unicast
+ timers bgp 30 90
+ !
+ ! -- BGP neighbors -------------------------------------------
+{% for peer in bgp_peers %}
+ neighbor {{ peer.ip_address }} remote-as {{ peer.remote_asn }}
+ neighbor {{ peer.ip_address }} description {{ peer.description }}
+{% if peer.password is defined %}
+ neighbor {{ peer.ip_address }} password {{ peer.password }}
+{% endif %}
+{% if peer.ebgp_multihop is defined %}
+ neighbor {{ peer.ip_address }} ebgp-multihop {{ peer.ebgp_multihop }}
+{% endif %}
+{% if peer.update_source is defined %}
+ neighbor {{ peer.ip_address }} update-source {{ peer.update_source }}
+{% endif %}
+{% endfor %}
+ !
+ address-family ipv4 unicast
+{% for peer in bgp_peers %}
+  neighbor {{ peer.ip_address }} activate
+{% if peer.is_primary | default(false) and wan_interfaces | length > 1 %}
+  neighbor {{ peer.ip_address }} route-map RM-BGP-PRIMARY-IN in
+{% elif peer.is_backup | default(false) and wan_interfaces | length > 1 %}
+  neighbor {{ peer.ip_address }} route-map RM-BGP-BACKUP-IN in
+{% else %}
+  neighbor {{ peer.ip_address }} route-map RM-BGP-PEER-IN in
+{% endif %}
+  neighbor {{ peer.ip_address }} route-map RM-BGP-PEER-OUT out
+{% if peer.max_prefix is defined %}
+  neighbor {{ peer.ip_address }} maximum-prefix {{ peer.max_prefix }} 80 restart 5
+{% endif %}
+{% endfor %}
+  network {{ site_prefix }} mask {{ site_mask }}
+{% for prefix in advertised_prefixes | default([]) %}
+  network {{ prefix.network }} mask {{ prefix.mask }}
+{% endfor %}
+ exit-address-family
+!
+! ============================================================
+!  OSPF — redistribute into internal routing
+! ============================================================
+!
+router ospf 1
+ router-id {{ router_id }}
+ passive-interface default
+{% for iface in lan_interfaces %}
+ no passive-interface {{ iface.name }}
+{% endfor %}
+ network {{ router_id }} 0.0.0.0 area 0
+{% for iface in lan_interfaces %}
+ network {{ iface.ip_address }} 0.0.0.0 area 0
+{% endfor %}
+ default-information originate always metric {{ ospf_default_metric | default(10) }}
+ area 0 authentication message-digest
+!
+! ============================================================
+!  NAT — PAT for internal subnets
+! ============================================================
+!
+{% for wan in wan_interfaces %}
+ip nat inside source list NAT-INSIDE interface {{ wan.name }} overload
+{% endfor %}
+!
+ip access-list standard NAT-INSIDE
+ remark Internal subnets
+ permit 10.0.0.0 0.255.255.255
+{% for tenant in mission_tenants | default([]) %}
+{% if tenant.user_subnet %}
+ permit {{ tenant.user_subnet }} 0.0.0.255
+{% endif %}
+{% if tenant.apps_subnet %}
+ permit {{ tenant.apps_subnet }} 0.0.0.255
+{% endif %}
+{% if tenant.data_subnet %}
+ permit {{ tenant.data_subnet }} 0.0.0.255
+{% endif %}
+{% endfor %}
+!
+{% for static_nat in static_nats | default([]) %}
+ip nat inside source static {{ static_nat.inside_ip }} {{ static_nat.outside_ip }}
+{% endfor %}
+!
+! ============================================================
+!  Static Routes
+! ============================================================
+!
+! Null route for BGP aggregate (prevent black-holing)
+ip route {{ site_prefix }} {{ site_mask }} Null0 name BGP-AGGREGATE
+!
+{% for route in static_routes | default([]) %}
+ip route {{ route.network }} {{ route.mask }} {{ route.next_hop }}{% if route.name is defined %} name {{ route.name }}{% endif %}
+
+{% endfor %}
+!
+! ============================================================
+!  IP SLA — WAN link monitoring
+! ============================================================
+!
+{% for wan in wan_interfaces %}
+{% if wan.sla_target is defined %}
+ip sla {{ loop.index }}
+ icmp-echo {{ wan.sla_target }} source-interface {{ wan.name }}
+ frequency 10
+ threshold 1000
+ timeout 2000
+ip sla schedule {{ loop.index }} life forever start-time now
+!
+track {{ loop.index }} ip sla {{ loop.index }} reachability
+!
+{% endif %}
+{% endfor %}
+!
+! ============================================================
+!  Console and VTY
+! ============================================================
+!
+banner motd ^
+*******************************************************************************
+*  AUTHORIZED ACCESS ONLY — {{ hostname | upper }}                            *
+*  WAN Border Router — {{ site_slug | upper }}                                *
+*  Unauthorized access is prohibited.                                         *
+*******************************************************************************
+^
+!
+line con 0
+ exec-timeout 10 0
+ logging synchronous
+ transport preferred none
+!
+line vty 0 15
+ exec-timeout 15 0
+ logging synchronous
+ transport input ssh
+ transport output none
+ login authentication default
+!
+end

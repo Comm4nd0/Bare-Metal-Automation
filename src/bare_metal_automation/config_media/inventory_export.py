@@ -114,7 +114,7 @@ class InventoryExporter:
         tag: str,
         output_dir: Path,
         laptop_ip: str = "",
-    ) -> tuple["InventoryExporter", dict[str, Any], dict[str, dict[str, Any]]]:
+    ) -> tuple[InventoryExporter, dict[str, Any], dict[str, dict[str, Any]]]:
         """Factory: fetch from NetBox, map, return (exporter, meta, specs).
 
         Convenience method that wires together NetBoxClient + mapper to

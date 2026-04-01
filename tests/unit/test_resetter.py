@@ -14,7 +14,6 @@ from bare_metal_automation.models import (
     DiscoveredDevice,
 )
 
-
 # ── Fixtures ──────────────────────────────────────────────────────────────
 
 

@@ -3,17 +3,13 @@
 from __future__ import annotations
 
 import hashlib
-import json
-import textwrap
 from pathlib import Path
 
 import pytest
 import yaml
+from deploy.models import PHASE_NAMES, Deployment
 from django.core.management import call_command
 from django.core.management.base import CommandError
-
-from deploy.models import PHASE_NAMES, Deployment, DeploymentDevice, DeploymentPhase
-
 
 # ---------------------------------------------------------------------------
 # Helpers for building a valid bundle on disk

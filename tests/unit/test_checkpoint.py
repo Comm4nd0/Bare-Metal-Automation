@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from unittest.mock import patch
 
 import pytest
 
@@ -16,8 +15,8 @@ from bare_metal_automation.common.checkpoint import (
     serialize_state,
 )
 from bare_metal_automation.models import (
-    CDPNeighbour,
     CablingResult,
+    CDPNeighbour,
     DeploymentPhase,
     DeploymentState,
     DevicePlatform,
@@ -26,7 +25,6 @@ from bare_metal_automation.models import (
     DiscoveredDevice,
 )
 from bare_metal_automation.orchestrator import PHASE_ORDER, Orchestrator
-
 
 # ── Fixtures ───────────────────────────────────────────────────────────────
 

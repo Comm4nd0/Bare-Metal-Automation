@@ -8,11 +8,9 @@ import time
 from jinja2 import Environment, FileSystemLoader
 
 from bare_metal_automation.models import DeploymentInventory, DiscoveredDevice
+from bare_metal_automation.settings import RELOAD_TIMER_MINUTES, SSH_TIMEOUT, TEMPLATE_DIR
 
 logger = logging.getLogger(__name__)
-
-# Dead man's switch: reload timer in minutes
-RELOAD_TIMER_MINUTES = 5
 
 
 class NetworkConfigurator:
@@ -21,8 +19,8 @@ class NetworkConfigurator:
     def __init__(
         self,
         inventory: DeploymentInventory,
-        ssh_timeout: int = 30,
-        template_dir: str = "configs/templates",
+        ssh_timeout: int = SSH_TIMEOUT,
+        template_dir: str = TEMPLATE_DIR,
     ) -> None:
         self.inventory = inventory
         self.ssh_timeout = ssh_timeout
@@ -70,7 +68,7 @@ class NetworkConfigurator:
 
             if valid:
                 # Step 6a: Cancel reload and save
-                logger.info(f"Validation passed — cancelling reload and saving")
+                logger.info("Validation passed — cancelling reload and saving")
                 self._cancel_reload(connection)
                 self._write_mem(connection)
                 connection.disconnect()
@@ -245,7 +243,7 @@ class NetworkConfigurator:
                 logger.info(f"{ip} is back online")
                 time.sleep(10)  # Give it a moment to fully boot
                 return True
-            except (socket.timeout, ConnectionRefusedError, OSError):
+            except (TimeoutError, ConnectionRefusedError, OSError):
                 time.sleep(interval)
 
         logger.error(f"{ip} did not come back within {timeout}s")

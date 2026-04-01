@@ -1,9 +1,6 @@
 """Unit tests for deploy and fleet app models."""
 
 import pytest
-from django.contrib.auth.models import User
-from django.utils import timezone
-
 from deploy.models import (
     PHASE_NAMES,
     RESET_PHASE_NAMES,
@@ -20,8 +17,8 @@ from deploy.models import (
     ResetPhase,
     ResetStatus,
 )
+from django.contrib.auth.models import User
 from fleet.models import FleetScan, SiteComplianceRecord, SiteRecord, TemplateRecord
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
