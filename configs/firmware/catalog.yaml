@@ -1,0 +1,61 @@
+# Firmware Catalog — Bare Metal Automation
+#
+# This file declares all firmware images available for deployment.
+# The "recommended" flag marks the target version for compliance checks.
+# "min_version" defines the minimum current version for a safe upgrade path.
+
+platforms:
+  cisco_ios:
+    - version: "15.2(4)M11"
+      filename: "c2960x-universalk9-mz.152-4.M11.bin"
+      md5: ""
+      min_version: "15.2(4)M7"
+      release_notes: "Security fixes, stability improvements"
+      recommended: true
+    - version: "15.2(4)M7"
+      filename: "c2960x-universalk9-mz.152-4.M7.bin"
+      md5: ""
+      release_notes: "Previous stable release"
+
+  cisco_iosxe:
+    - version: "17.09.04a"
+      filename: "cat9k_iosxe.17.09.04a.SPA.bin"
+      md5: ""
+      min_version: "17.06.01"
+      release_notes: "Recommended release for Catalyst 9000 series"
+      recommended: true
+    - version: "17.06.05"
+      filename: "cat9k_iosxe.17.06.05.SPA.bin"
+      md5: ""
+      min_version: "17.03.01"
+      release_notes: "Extended maintenance release"
+
+  cisco_asa:
+    - version: "9.18(4)5"
+      filename: "asa9-18-4-5-lfbff-k8.SPA"
+      md5: ""
+      min_version: "9.16(3)"
+      release_notes: "Latest ASA security fixes"
+      recommended: true
+
+  cisco_ftd:
+    - version: "7.2.5"
+      filename: "ftd-boot-7.2.5.cdisk"
+      md5: ""
+      min_version: "7.0.0"
+      release_notes: "FTD recommended release"
+      recommended: true
+
+  hpe_ilo5:
+    - version: "2.81"
+      filename: "ilo5_281.bin"
+      md5: ""
+      release_notes: "iLO 5 firmware with security patches"
+      recommended: true
+
+  meinberg_lantime:
+    - version: "7.08.004"
+      filename: "lantime-7.08.004.upd"
+      md5: ""
+      release_notes: "LANTIME firmware update"
+      recommended: true
