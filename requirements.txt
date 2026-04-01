@@ -3,36 +3,42 @@
 # Update versions here and in pyproject.toml together.
 
 # ── CLI / config ──────────────────────────────────────────────────────────────
-click>=8.1
-pyyaml>=6.0
-jinja2>=3.1
-rich>=13.7
-pydantic>=2.5
+click>=8.1,<9
+pyyaml>=6.0,<7
+jinja2>=3.1,<4
+rich>=13.7,<14
+pydantic>=2.5,<3
 
 # ── Network automation ────────────────────────────────────────────────────────
-netmiko>=4.3
-paramiko>=3.4
-networkx>=3.2
-requests>=2.31
-pyserial>=3.5
+netmiko>=4.3,<5
+paramiko>=3.4,<4
+networkx>=3.2,<4
+requests>=2.31,<3
+pyserial>=3.5,<4
 
 # ── NetBox / orchestrator ─────────────────────────────────────────────────────
-pynetbox>=7.3
+pynetbox>=7.3,<8
 
 # ── Ansible ───────────────────────────────────────────────────────────────────
-ansible-runner>=2.3
+ansible-runner>=2.3,<3
 
 # ── Dashboard ─────────────────────────────────────────────────────────────────
-django>=5.0
+django>=5.0,<6
+channels>=4.0,<5
+channels-redis>=4.2,<5
+daphne>=4.1,<5
+djangorestframework>=3.15,<4
+django-filter>=24.1,<25
 
 # ── Utilities ─────────────────────────────────────────────────────────────────
-tabulate>=0.9
-semver>=3.0
+tabulate>=0.9,<1
+semver>=3.0,<4
 
 # ── Development extras (not installed in production) ─────────────────────────
-# pytest>=7.4
-# pytest-cov>=4.1
-# pytest-asyncio>=0.23
-# ruff>=0.3
-# mypy>=1.8
-# pre-commit>=3.6
+# pytest>=7.4,<9
+# pytest-cov>=4.1,<6
+# pytest-asyncio>=0.23,<1
+# pytest-django>=4.8,<5
+# ruff>=0.3,<1
+# mypy>=1.8,<2
+# pre-commit>=3.6,<4
