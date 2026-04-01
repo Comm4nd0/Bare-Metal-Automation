@@ -47,6 +47,7 @@ bma-site-generate       = "orchestrator.site_generate:main"
 bma-site-regenerate     = "orchestrator.site_regenerate:main"
 bma-fleet-scan          = "orchestrator.fleet_scan:main"
 bma-orchestrate         = "orchestrator.orchestrate:main"
+bma-generate            = "bare_metal_automation.config_media.generate:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/bare_metal_automation", "orchestrator"]

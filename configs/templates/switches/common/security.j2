@@ -1,0 +1,36 @@
+!
+! ============================================================
+!  L2 Security — DHCP snooping, Dynamic ARP Inspection,
+!  storm control, IP source guard defaults.
+!
+!  DHCP snooping trust is set per-port in the role templates
+!  (uplinks toward the DHCP server are trusted).
+! ============================================================
+!
+! ── DHCP Snooping ────────────────────────────────────────────
+ip dhcp snooping
+{% for vlan in vlans if vlan.is_management %}
+ip dhcp snooping vlan {{ vlan.vid }}
+{% endfor %}
+{% for tenant in mission_tenants %}
+ip dhcp snooping vlan {{ tenant.user_vlan }},{{ tenant.apps_vlan }},{{ tenant.data_vlan }}
+{% endfor %}
+no ip dhcp snooping information option
+!
+! ── Dynamic ARP Inspection ───────────────────────────────────
+{% for vlan in vlans if vlan.is_management %}
+ip arp inspection vlan {{ vlan.vid }}
+{% endfor %}
+{% for tenant in mission_tenants %}
+ip arp inspection vlan {{ tenant.user_vlan }},{{ tenant.apps_vlan }},{{ tenant.data_vlan }}
+{% endfor %}
+!
+ip arp inspection validate src-mac dst-mac ip
+!
+! ── Storm Control defaults (applied per-port in role templates)
+! broadcast-level 20 pps, multicast 10 pps, unicast 40 pps
+! See role template for per-port config.
+!
+! ── IP Source Guard is enabled per-port on access ports (dot1x)
+!    in role templates using: ip verify source
+!

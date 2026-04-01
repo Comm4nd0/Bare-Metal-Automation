@@ -1,0 +1,58 @@
+!
+! ============================================================
+!  BMA — {{ hostname }}
+!  Role  : L3 Core Switch — HA pair (HSRP v2 on all SVIs)
+!  Serial: {{ serial }}
+!  Site  : {{ site_slug | upper }}
+! ============================================================
+!
+! Extends core.j2 with HSRP v2 on every SVI.
+! Variables additional to core.j2:
+!   hsrp_priority   int   110 (active) or 100 (standby) — set in config context
+!   hsrp_vip_*      str   virtual IP per SVI — set in config context
+!   hsrp_key        str   (from Ansible Vault)
+!
+{% set hsrp_priority = hsrp_priority | default(110) %}
+!
+{% include "switches/core.j2" %}
+!
+! ============================================================
+!  HSRP v2 — applied after core.j2 SVIs
+! ============================================================
+!
+interface Vlan100
+ standby version 2
+ standby 100 ip {{ hsrp_vip_mgmt | default("10.0.100.254") }}
+ standby 100 priority {{ hsrp_priority }}
+ standby 100 preempt delay minimum 30
+ standby 100 authentication md5 key-string {{ hsrp_key }}
+ standby 100 track 1 decrement 20
+!
+{% for tenant in mission_tenants %}
+interface Vlan{{ tenant.user_vlan }}
+ standby version 2
+ standby {{ tenant.index }}00 ip {{ tenant.user_gateway | replace('.1', '.254') | default('') }}
+ standby {{ tenant.index }}00 priority {{ hsrp_priority }}
+ standby {{ tenant.index }}00 preempt delay minimum 30
+ standby {{ tenant.index }}00 authentication md5 key-string {{ hsrp_key }}
+!
+interface Vlan{{ tenant.apps_vlan }}
+ standby version 2
+ standby {{ tenant.index }}10 ip {{ tenant.apps_gateway | replace('.1', '.254') | default('') }}
+ standby {{ tenant.index }}10 priority {{ hsrp_priority }}
+ standby {{ tenant.index }}10 preempt delay minimum 30
+ standby {{ tenant.index }}10 authentication md5 key-string {{ hsrp_key }}
+!
+interface Vlan{{ tenant.data_vlan }}
+ standby version 2
+ standby {{ tenant.index }}20 ip {{ tenant.data_gateway | replace('.1', '.254') | default('') }}
+ standby {{ tenant.index }}20 priority {{ hsrp_priority }}
+ standby {{ tenant.index }}20 preempt delay minimum 30
+ standby {{ tenant.index }}20 authentication md5 key-string {{ hsrp_key }}
+!
+{% endfor %}
+!
+! HSRP tracking — tracks uplink to border router
+track 1 interface {{ interfaces | selectattr('description', 'search', 'border') | map(attribute='name') | first | default('GigabitEthernet1/0/48') }} line-protocol
+!
+end

@@ -1,0 +1,31 @@
+!
+! ============================================================
+!  Spanning Tree — rapid-PVST with per-role priority.
+!
+!  Priority values (lower = more preferred as root):
+!    Core switch       : 4096   (set in core.j2 / core-ha.j2)
+!    Distribution      : 8192   (set in distribution.j2)
+!    Access            : 32768  (default — set here)
+!
+!  BPDUguard + portfast are applied per-port in interfaces.j2.
+! ============================================================
+!
+spanning-tree mode rapid-pvst
+spanning-tree extend system-id
+!
+! Management VLANs — default priority unless overridden in role template
+{% for vlan in vlans if vlan.is_management %}
+spanning-tree vlan {{ vlan.vid }} priority 32768
+{% endfor %}
+!
+! Mission tenant VLANs — default priority
+{% for tenant in mission_tenants %}
+spanning-tree vlan {{ tenant.user_vlan }} priority 32768
+spanning-tree vlan {{ tenant.apps_vlan }} priority 32768
+spanning-tree vlan {{ tenant.data_vlan }} priority 32768
+{% endfor %}
+!
+! Loop guard and portfast defaults
+spanning-tree loopguard default
+spanning-tree portfast bpduguard default
+!

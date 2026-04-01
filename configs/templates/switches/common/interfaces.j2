@@ -1,0 +1,67 @@
+!
+! ============================================================
+!  Interface configuration — trunk / access / routed / LAG
+!
+!  Variables expected in context (per InterfaceContext):
+!    iface.name         str    e.g. "GigabitEthernet1/0/1"
+!    iface.description  str
+!    iface.mode         str    "access" | "trunk" | "routed" | "lag" | "unused"
+!    iface.access_vlan  int
+!    iface.trunk_vlans  str    "all" or comma-separated
+!    iface.native_vlan  int
+!    iface.ip_address   str    (routed mode only)
+!    iface.ip_mask      str
+!    iface.shutdown     bool
+!    iface.portfast     bool
+!    iface.dot1x        bool
+!    iface.lag_group    int    0 = not a LAG member
+!    iface.lag_mode     str    "active" | "passive"
+!
+!  This partial is included from role templates after the VLAN database.
+! ============================================================
+!
+{% for iface in interfaces %}
+interface {{ iface.name }}
+{% if iface.description %}
+ description {{ iface.description }}
+{% endif %}
+{% if iface.mode == 'trunk' %}
+ switchport mode trunk
+ switchport trunk encapsulation dot1q
+ switchport trunk native vlan 999
+ switchport trunk allowed vlan {{ iface.trunk_vlans }}
+ no shutdown
+{% elif iface.mode == 'access' %}
+ switchport mode access
+ switchport access vlan {{ iface.access_vlan }}
+{% if iface.portfast %}
+ spanning-tree portfast
+{% endif %}
+{% if iface.dot1x %}
+ authentication port-control auto
+ authentication periodic
+ dot1x pae authenticator
+ mab
+{% endif %}
+{% if not iface.shutdown %}
+ no shutdown
+{% endif %}
+{% elif iface.mode == 'routed' %}
+ no switchport
+{% if iface.ip_address %}
+ ip address {{ iface.ip_address }} {{ iface.ip_mask }}
+{% endif %}
+ no shutdown
+{% elif iface.mode == 'lag' %}
+ channel-group {{ iface.lag_group }} mode {{ iface.lag_mode }}
+ no shutdown
+{% else %}
+ ! mode={{ iface.mode }} — unused / shutdown
+ switchport access vlan 999
+ shutdown
+{% endif %}
+{% if iface.shutdown and iface.mode != 'lag' %}
+ shutdown
+{% endif %}
+!
+{% endfor %}

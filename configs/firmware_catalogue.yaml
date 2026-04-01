@@ -1,0 +1,140 @@
+# BMA Firmware Catalogue
+# Maps platform + version to filename + SHA-256.
+# All paths are relative to the roots defined in the `paths` section.
+
+paths:
+  firmware_root: /mnt/fileserver/firmware
+  iso_root: /mnt/fileserver/isos
+  certs_root: /mnt/fileserver/certs
+
+# ── Network device firmware ────────────────────────────────────────────────
+
+firmware:
+
+  cisco_ios:
+    default: "15.2.7E8"
+    versions:
+      "15.2.7E8":
+        filename: c2960cx-universalk9-mz.152-7.E8.bin
+        sha256: ""   # populate before deployment
+        platforms: [cisco_ios]
+      "15.2.7E9":
+        filename: c2960cx-universalk9-mz.152-7.E9.bin
+        sha256: ""
+        platforms: [cisco_ios]
+
+  cisco_iosxe:
+    default: "17.12.4"
+    versions:
+      "17.12.4":
+        filename: cat9k_iosxe.17.12.04.SPA.bin
+        sha256: ""
+        platforms: [cisco_iosxe]
+      "17.9.5":
+        filename: cat9k_iosxe.17.09.05.SPA.bin
+        sha256: ""
+        platforms: [cisco_iosxe]
+
+  cisco_asa:
+    default: "9.18.4"
+    versions:
+      "9.18.4":
+        filename: asa9184-smp-k8.bin
+        sha256: ""
+        platforms: [cisco_asa]
+
+  cisco_ftd:
+    default: "7.4.1"
+    versions:
+      "7.4.1":
+        filename: ftd-7.4.1-172.SPA.pkg
+        sha256: ""
+        platforms: [cisco_ftd]
+
+  # ── HPE server platforms ─────────────────────────────────────────────────
+
+  hpe_dl325_gen10:
+    spp:
+      default: "2024.03.0"
+      versions:
+        "2024.03.0":
+          filename: P58473_001_spp-2024.03.0-SPP2024030.2024_0313.11.iso
+          sha256: ""
+        "2023.09.0":
+          filename: P52781_001_spp-2023.09.0-SPP2023090.2023_0901.17.iso
+          sha256: ""
+    ilo_firmware:
+      default: "2.99"
+      versions:
+        "2.99":
+          filename: ilo5_299.bin
+          sha256: ""
+        "2.90":
+          filename: ilo5_290.bin
+          sha256: ""
+
+  hpe_dl360_gen10:
+    spp:
+      default: "2024.03.0"
+      versions:
+        "2024.03.0":
+          filename: P58473_001_spp-2024.03.0-SPP2024030.2024_0313.11.iso
+          sha256: ""
+    ilo_firmware:
+      default: "2.99"
+      versions:
+        "2.99":
+          filename: ilo5_299.bin
+          sha256: ""
+
+  hpe_dl380_gen10:
+    spp:
+      default: "2024.03.0"
+      versions:
+        "2024.03.0":
+          filename: P58473_001_spp-2024.03.0-SPP2024030.2024_0313.11.iso
+          sha256: ""
+    ilo_firmware:
+      default: "2.99"
+      versions:
+        "2.99":
+          filename: ilo5_299.bin
+          sha256: ""
+
+# ── OS installation ISOs ───────────────────────────────────────────────────
+
+os_isos:
+
+  rhel9:
+    default: "9.3"
+    versions:
+      "9.3":
+        filename: rhel-9.3-x86_64-dvd.iso
+        sha256: ""
+      "9.2":
+        filename: rhel-9.2-x86_64-dvd.iso
+        sha256: ""
+
+  windows_server_2022:
+    default: "21H2"
+    versions:
+      "21H2":
+        filename: SW_DVD9_Win_Server_STD_CORE_2022__64Bit_English_DC_STD_MLF_X23-31801.ISO
+        sha256: ""
+
+  # Kickstart / unattend ISOs (generated per-deployment)
+  rhel9_kickstart:
+    default: "site"
+    versions:
+      "site":
+        filename: kickstart-rhel9.iso
+        sha256: ""
+
+# ── Certificates ──────────────────────────────────────────────────────────
+
+# Certificate files are referenced by name; BMA copies them from certs_root.
+# No version tracking — certs are rotated by replacing the file.
+certificates:
+  ca_bundle: ca-bundle.pem
+  device_cert: device.pem
+  device_key: device.key

@@ -1,0 +1,30 @@
+!
+! ============================================================
+!  VLAN database — management VLANs + per-mission tenant VLANs
+!  Included by all switch role templates.
+! ============================================================
+!
+! ── Management VLANs ─────────────────────────────────────────
+{% for vlan in vlans if vlan.is_management %}
+vlan {{ vlan.vid }}
+ name {{ vlan.name }}
+!
+{% endfor %}
+!
+! ── Mission Tenant VLANs ─────────────────────────────────────
+{% for tenant in mission_tenants %}
+vlan {{ tenant.user_vlan }}
+ name {{ tenant.name }}_USERS
+!
+vlan {{ tenant.apps_vlan }}
+ name {{ tenant.name }}_APPS
+!
+vlan {{ tenant.data_vlan }}
+ name {{ tenant.name }}_DATA
+!
+{% endfor %}
+!
+! ── Native / untagged blackhole ───────────────────────────────
+vlan 999
+ name BLACKHOLE
+!
