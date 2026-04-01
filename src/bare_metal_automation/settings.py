@@ -78,3 +78,6 @@ TEMPLATE_DIR = os.environ.get("BMA_TEMPLATE_DIR", "configs/templates")
 ISO_DIR = os.environ.get("BMA_ISO_DIR", "configs/iso")
 INVENTORY_DIR = os.environ.get("BMA_INVENTORY_DIR", "configs/inventory")
 LEASE_FILE = os.environ.get("BMA_LEASE_FILE", "/var/lib/misc/dnsmasq.leases")
+FIRMWARE_CATALOG = os.environ.get(
+    "BMA_FIRMWARE_CATALOG", "configs/firmware/catalog.yaml"
+)

@@ -259,6 +259,150 @@ class CablingResult(models.Model):
         }.get(self.status, "secondary")
 
 
+class FirmwareImage(models.Model):
+    """A firmware image tracked in the catalog."""
+
+    platform = models.CharField(
+        max_length=60,
+        help_text="Platform identifier (e.g. cisco_ios, cisco_iosxe, hpe_ilo5).",
+    )
+    version = models.CharField(max_length=100)
+    filename = models.CharField(max_length=255)
+    md5 = models.CharField(max_length=64, blank=True)
+    min_version = models.CharField(
+        max_length=100,
+        blank=True,
+        help_text="Minimum current version required for safe upgrade.",
+    )
+    release_notes = models.TextField(blank=True)
+    recommended = models.BooleanField(
+        default=False,
+        help_text="Whether this is the recommended version for its platform.",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["platform", "-recommended", "-version"]
+        unique_together = [("platform", "version")]
+
+    def __str__(self):
+        suffix = " (recommended)" if self.recommended else ""
+        return f"{self.platform} {self.version}{suffix}"
+
+
+class FirmwareTestRun(models.Model):
+    """Record of a firmware upgrade test against a device."""
+
+    deployment = models.ForeignKey(
+        Deployment,
+        on_delete=models.CASCADE,
+        related_name="firmware_tests",
+        null=True,
+        blank=True,
+    )
+    device = models.ForeignKey(
+        Device,
+        on_delete=models.CASCADE,
+        related_name="firmware_tests",
+        null=True,
+        blank=True,
+    )
+    firmware_image = models.ForeignKey(
+        FirmwareImage,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="test_runs",
+    )
+    device_hostname = models.CharField(max_length=200)
+    device_ip = models.GenericIPAddressField()
+    platform = models.CharField(max_length=60)
+    previous_version = models.CharField(max_length=100, blank=True)
+    target_version = models.CharField(max_length=100)
+    final_version = models.CharField(max_length=100, blank=True)
+    outcome = models.CharField(
+        max_length=20,
+        choices=[
+            ("passed", "Passed"),
+            ("failed", "Failed"),
+            ("skipped", "Skipped"),
+            ("rolled_back", "Rolled Back"),
+            ("error", "Error"),
+        ],
+        default="skipped",
+    )
+    phase_reached = models.CharField(
+        max_length=20,
+        choices=[
+            ("snapshot", "Snapshot"),
+            ("pre_validation", "Pre-Validation"),
+            ("upgrade", "Upgrade"),
+            ("config_reapply", "Config Re-apply"),
+            ("post_validation", "Post-Validation"),
+            ("rollback", "Rollback"),
+            ("complete", "Complete"),
+        ],
+        default="snapshot",
+    )
+    config_reapply_success = models.BooleanField(default=False)
+    pre_validation_passed = models.BooleanField(null=True, blank=True)
+    post_validation_passed = models.BooleanField(null=True, blank=True)
+    duration_seconds = models.FloatField(default=0.0)
+    error_message = models.TextField(blank=True)
+    findings = models.JSONField(default=list, blank=True)
+    started_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-started_at"]
+
+    def __str__(self):
+        return (
+            f"{self.device_hostname}: "
+            f"{self.previous_version} -> {self.target_version} "
+            f"({self.outcome})"
+        )
+
+    @property
+    def outcome_css_class(self):
+        return {
+            "passed": "success",
+            "failed": "danger",
+            "skipped": "secondary",
+            "rolled_back": "warning",
+            "error": "danger",
+        }.get(self.outcome, "secondary")
+
+
+class FirmwareComplianceSnapshot(models.Model):
+    """Point-in-time firmware compliance snapshot for the fleet."""
+
+    deployment = models.ForeignKey(
+        Deployment,
+        on_delete=models.CASCADE,
+        related_name="compliance_snapshots",
+        null=True,
+        blank=True,
+    )
+    total_devices = models.IntegerField(default=0)
+    compliant_count = models.IntegerField(default=0)
+    upgrade_available_count = models.IntegerField(default=0)
+    blocked_count = models.IntegerField(default=0)
+    unreachable_count = models.IntegerField(default=0)
+    compliance_percentage = models.FloatField(default=0.0)
+    details = models.JSONField(default=list, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return (
+            f"Compliance {self.compliance_percentage:.1f}% "
+            f"({self.created_at:%Y-%m-%d %H:%M})"
+        )
+
+
 class DeploymentLog(models.Model):
     """Log entries for a deployment."""
 

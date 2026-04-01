@@ -30,6 +30,39 @@ Bare Metal Automation is a zero-touch provisioning tool for bare-metal infrastru
 
 ## Session Log
 
+### Session — Firmware Upgrade Testing Framework
+
+**Date**: 2026-04-01
+**Branch**: `claude/firmware-upgrade-testing-p9rRZ`
+
+**What was done**:
+- Created `firmware/` package (`src/bare_metal_automation/firmware/`) with three modules:
+  - `catalog.py` — `FirmwareCatalog` and `FirmwareEntry`: YAML-based firmware manifest declaring all available firmware images per platform, with versions, MD5 checksums, minimum upgrade path versions, release notes, and recommended flags. Supports load/save YAML roundtrip, platform queries, and safe upgrade path checking.
+  - `tester.py` — `FirmwareTestRunner`: full upgrade-and-verify test pipeline that snapshots current firmware + running config, runs pre-upgrade validation, performs the firmware upgrade, re-applies the saved configuration, waits for protocol convergence, runs post-upgrade validation (role-specific health checks), and optionally rolls back on failure. Devices are tested sequentially to limit blast radius — stops on first failure.
+  - `compliance.py` — `ComplianceChecker`: scans devices (via SSH) and compares running firmware against catalog recommendations. Produces a `ComplianceReport` with per-device status (compliant, upgrade_available, upgrade_blocked, unreachable) and fleet-wide compliance percentage.
+- Added Django dashboard models:
+  - `FirmwareImage` — tracks catalog entries in the DB (platform, version, filename, md5, min_version, recommended)
+  - `FirmwareTestRun` — records test results (outcome, phases, validation results, duration, findings)
+  - `FirmwareComplianceSnapshot` — point-in-time fleet compliance snapshot
+- Created `dashboard/firmware_views.py` with 7 API endpoints:
+  - `GET /api/firmware/catalog/` — list firmware images
+  - `POST /api/firmware/catalog/sync/` — sync DB from YAML catalog
+  - `GET /api/firmware/tests/` — list test runs
+  - `POST /api/firmware/tests/record/` — record test result
+  - `GET /api/firmware/tests/<id>/` — test run detail
+  - `GET /api/firmware/compliance/` — latest compliance snapshot
+  - `POST /api/firmware/compliance/record/` — record compliance snapshot
+- Added `FIRMWARE_CATALOG` setting to `settings.py` (env var: `BMA_FIRMWARE_CATALOG`)
+- Created sample `configs/firmware/catalog.yaml` with entries for all supported platforms (cisco_ios, cisco_iosxe, cisco_asa, cisco_ftd, hpe_ilo5, meinberg_lantime)
+- Added 32 unit tests in `tests/unit/test_firmware.py` covering catalog CRUD, upgrade path safety, compliance checking, test runner phases, and failure/rollback scenarios
+
+**Key decisions**:
+- Sequential device testing (not parallel) to limit blast radius — if a firmware breaks configs, stop before affecting more devices
+- Rollback capability: if post-upgrade validation fails, the runner can downgrade to the previous version (if it exists in the catalog) and re-apply the saved config
+- The test runner composes existing `FirmwareConfigurator` (for the actual upgrade) and `ConfigValidator` (for health checks) rather than duplicating their logic
+- Safe upgrade paths enforced via `min_version` in catalog entries — devices below the minimum cannot be upgraded (prevents bricked devices from unsupported jumps)
+- 30-second convergence wait after config re-apply before post-validation — allows STP, OSPF, HSRP to reconverge
+
 ### Session — NetBox Deployment Script
 
 **Date**: 2026-04-01

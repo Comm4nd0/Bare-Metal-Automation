@@ -2,7 +2,7 @@
 
 from django.urls import path
 
-from . import views
+from . import firmware_views, views
 
 urlpatterns = [
     # ── HTML pages ──────────────────────────────────────────────────────────
@@ -114,5 +114,42 @@ urlpatterns = [
         "api/simulation/status/",
         views.api_simulation_status,
         name="api-simulation-status",
+    ),
+
+    # ── Firmware Management API ────────────────────────────────────────────
+    path(
+        "api/firmware/catalog/",
+        firmware_views.api_firmware_catalog,
+        name="api-firmware-catalog",
+    ),
+    path(
+        "api/firmware/catalog/sync/",
+        firmware_views.api_firmware_catalog_sync,
+        name="api-firmware-catalog-sync",
+    ),
+    path(
+        "api/firmware/tests/",
+        firmware_views.api_firmware_tests,
+        name="api-firmware-tests",
+    ),
+    path(
+        "api/firmware/tests/record/",
+        firmware_views.api_record_firmware_test,
+        name="api-firmware-test-record",
+    ),
+    path(
+        "api/firmware/tests/<int:pk>/",
+        firmware_views.api_firmware_test_detail,
+        name="api-firmware-test-detail",
+    ),
+    path(
+        "api/firmware/compliance/",
+        firmware_views.api_firmware_compliance,
+        name="api-firmware-compliance",
+    ),
+    path(
+        "api/firmware/compliance/record/",
+        firmware_views.api_record_compliance,
+        name="api-firmware-compliance-record",
     ),
 ]
