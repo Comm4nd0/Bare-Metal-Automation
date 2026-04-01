@@ -1,0 +1,71 @@
+/*
+ * traffic-lights.css
+ * Traffic light colour definitions for phase status indicators.
+ * Used by the phase pipeline and any element with a .tl-<colour> class.
+ */
+
+/* ---- Phase dot colours ---- */
+.tl-grey {
+  background-color: #2d3148;
+  border-color: #444 !important;
+  color: #888;
+}
+
+.tl-blue {
+  background-color: #1a3a6b;
+  border-color: #4da6ff !important;
+  color: #7ab4ff;
+}
+
+.tl-green {
+  background-color: #0d3d2a;
+  border-color: #4caf82 !important;
+  color: #4caf82;
+}
+
+.tl-amber {
+  background-color: #4a3000;
+  border-color: #ffb84d !important;
+  color: #ffb84d;
+}
+
+.tl-red {
+  background-color: #4a0d0d;
+  border-color: #ff6b6b !important;
+  color: #ff6b6b;
+}
+
+.tl-teal {
+  background-color: #0d3a3a;
+  border-color: #4dd0d0 !important;
+  color: #4dd0d0;
+}
+
+/* ---- Phase connector line colours (matches the running phase) ---- */
+.connector-active {
+  background: linear-gradient(90deg, #4caf82, #4da6ff);
+}
+
+/* ---- Status dot (small inline indicator) ---- */
+.status-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-right: 6px;
+  vertical-align: middle;
+}
+.status-dot-grey   { background: #666; }
+.status-dot-blue   { background: #4da6ff; animation: blink 1s step-start infinite; }
+.status-dot-green  { background: #4caf82; }
+.status-dot-amber  { background: #ffb84d; }
+.status-dot-red    { background: #ff6b6b; }
+
+@keyframes blink {
+  50% { opacity: 0.3; }
+}
+
+/* ---- Device status row highlight ---- */
+tr.device-running td { border-left: 3px solid #4da6ff; }
+tr.device-failed  td { border-left: 3px solid #ff6b6b; }
+tr.device-done    td { border-left: 3px solid #4caf82; }

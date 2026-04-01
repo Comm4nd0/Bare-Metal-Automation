@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% block title %}Deployments — BMA{% endblock %}
+{% block nav_deploy %}active{% endblock %}
+
+{% block content %}
+<div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:1.5rem;">
+  <h1 style="font-size:1.4rem; font-weight:700;">Deployments</h1>
+  <span style="font-size:0.8rem; color:#888;">Total: {{ deployments|length }}</span>
+</div>
+
+{% if deployments %}
+<div class="card">
+  <table>
+    <thead>
+      <tr>
+        <th>Site</th>
+        <th>Template</th>
+        <th>Version</th>
+        <th>Status</th>
+        <th>Progress</th>
+        <th>Ingested</th>
+        <th>Operator</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for d in deployments %}
+      <tr>
+        <td>
+          <a href="{% url 'deploy:deployment_detail' d.id %}">{{ d.site_name }}</a>
+          <br><small style="color:#666;">{{ d.site_slug }}</small>
+        </td>
+        <td>{{ d.template_name }}</td>
+        <td><code>{{ d.template_version }}</code></td>
+        <td>
+          {% if d.status == 'ingested' %}
+            <span class="badge badge-grey">Ingested</span>
+          {% elif d.status == 'running' %}
+            <span class="badge badge-blue">Running</span>
+          {% elif d.status == 'completed' %}
+            <span class="badge badge-green">Completed</span>
+          {% elif d.status == 'failed' %}
+            <span class="badge badge-red">Failed</span>
+          {% elif d.status == 'aborted' %}
+            <span class="badge badge-amber">Aborted</span>
+          {% endif %}
+        </td>
+        <td style="min-width:120px;">
+          <div class="progress-bar-wrap">
+            <div class="progress-bar-fill" style="width:{{ d.progress_pct }}%;"></div>
+          </div>
+          <small style="color:#666; font-size:0.7rem;">{{ d.progress_pct }}%</small>
+        </td>
+        <td style="white-space:nowrap; color:#888; font-size:0.8rem;">{{ d.ingested_at|date:"Y-m-d H:i" }}</td>
+        <td style="color:#888; font-size:0.8rem;">{{ d.operator|default:"—" }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+<div class="card" style="text-align:center; padding:3rem;">
+  <p style="color:#666; margin-bottom:0.5rem;">No deployments ingested yet.</p>
+  <p style="font-size:0.8rem; color:#444;">
+    Run: <code>python manage.py ingest_bundle --path /media/usb/bundle/</code>
+  </p>
+</div>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}BMA Dashboard{% endblock %}</title>
+  {% load static %}
+  <link rel="stylesheet" href="{% static 'css/traffic-lights.css' %}">
+  <style>
+    /* ---- Reset & base ---- */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, monospace;
+      background: #0f1117;
+      color: #e0e0e0;
+      min-height: 100vh;
+    }
+    a { color: #4da6ff; text-decoration: none; }
+    a:hover { text-decoration: underline; }
+
+    /* ---- Nav ---- */
+    nav {
+      background: #1a1d27;
+      border-bottom: 1px solid #2d3148;
+      padding: 0.75rem 1.5rem;
+      display: flex;
+      align-items: center;
+      gap: 2rem;
+    }
+    nav .brand {
+      font-weight: 700;
+      font-size: 1.1rem;
+      color: #fff;
+      letter-spacing: 0.02em;
+    }
+    nav .brand span { color: #4da6ff; }
+    nav ul { list-style: none; display: flex; gap: 1.5rem; }
+    nav ul li a { color: #aaa; font-size: 0.9rem; }
+    nav ul li a:hover, nav ul li a.active { color: #fff; }
+
+    /* ---- Main layout ---- */
+    main { padding: 1.5rem; max-width: 1400px; margin: 0 auto; }
+
+    /* ---- Cards ---- */
+    .card {
+      background: #1a1d27;
+      border: 1px solid #2d3148;
+      border-radius: 8px;
+      padding: 1.25rem;
+      margin-bottom: 1rem;
+    }
+    .card-title {
+      font-size: 0.75rem;
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: #888;
+      margin-bottom: 0.75rem;
+    }
+
+    /* ---- Tables ---- */
+    table { width: 100%; border-collapse: collapse; font-size: 0.875rem; }
+    th, td { padding: 0.5rem 0.75rem; text-align: left; border-bottom: 1px solid #2d3148; }
+    th { color: #888; font-weight: 600; font-size: 0.75rem; text-transform: uppercase; }
+    tr:last-child td { border-bottom: none; }
+    tr:hover td { background: rgba(255,255,255,0.02); }
+
+    /* ---- Badge ---- */
+    .badge {
+      display: inline-block;
+      padding: 0.2rem 0.55rem;
+      border-radius: 4px;
+      font-size: 0.7rem;
+      font-weight: 600;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+    .badge-grey    { background: #333; color: #aaa; }
+    .badge-blue    { background: #1a3a6b; color: #7ab4ff; }
+    .badge-green   { background: #0d3d2a; color: #4caf82; }
+    .badge-amber   { background: #4a3000; color: #ffb84d; }
+    .badge-red     { background: #4a0d0d; color: #ff6b6b; }
+    .badge-teal    { background: #0d3a3a; color: #4dd0d0; }
+    .badge-cyan    { background: #0d2a3a; color: #4dc4e0; }
+
+    /* ---- Progress bar ---- */
+    .progress-bar-wrap { background: #2d3148; border-radius: 4px; height: 6px; }
+    .progress-bar-fill { height: 6px; border-radius: 4px; background: #4da6ff; transition: width 0.4s; }
+
+    /* ---- Alerts ---- */
+    .alert { padding: 0.75rem 1rem; border-radius: 6px; margin-bottom: 1rem; font-size: 0.875rem; }
+    .alert-info    { background: #1a3a6b; border: 1px solid #2d5ca6; color: #7ab4ff; }
+    .alert-success { background: #0d3d2a; border: 1px solid #1a6b4a; color: #4caf82; }
+    .alert-warning { background: #4a3000; border: 1px solid #7a5000; color: #ffb84d; }
+    .alert-danger  { background: #4a0d0d; border: 1px solid #8b1a1a; color: #ff6b6b; }
+
+    /* ---- Messages ---- */
+    .messages { list-style: none; }
+    .messages li { margin-bottom: 0.5rem; }
+  </style>
+  {% block extra_css %}{% endblock %}
+</head>
+<body>
+  <nav>
+    <span class="brand">Bare <span>Metal</span> Automation</span>
+    <ul>
+      <li><a href="{% url 'deploy:index' %}" class="{% block nav_deploy %}{% endblock %}">Deployments</a></li>
+      <li><a href="{% url 'fleet:index' %}" class="{% block nav_fleet %}{% endblock %}">Fleet</a></li>
+      <li><a href="/admin/" target="_blank">Admin</a></li>
+      <li><a href="/api/" target="_blank">API</a></li>
+    </ul>
+  </nav>
+
+  {% if messages %}
+    <main>
+      <ul class="messages">
+        {% for message in messages %}
+          <li class="alert alert-{{ message.tags }}">{{ message }}</li>
+        {% endfor %}
+      </ul>
+    </main>
+  {% endif %}
+
+  <main>
+    {% block content %}{% endblock %}
+  </main>
+</body>
+</html>

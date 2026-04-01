@@ -1,0 +1,181 @@
+{% extends "base.html" %}
+{% load static %}
+{% block title %}{{ deployment.site_name }} — BMA{% endblock %}
+{% block nav_deploy %}active{% endblock %}
+
+{% block extra_css %}
+<style>
+/* ---- Phase Pipeline ---- */
+.phase-pipeline {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  overflow-x: auto;
+  padding: 1rem 0;
+}
+.phase-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  position: relative;
+  min-width: 90px;
+  cursor: pointer;
+  text-decoration: none;
+}
+.phase-item:hover .phase-dot { transform: scale(1.1); }
+.phase-connector {
+  flex: 1;
+  height: 2px;
+  min-width: 20px;
+  background: #2d3148;
+}
+.phase-dot {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.75rem;
+  font-weight: 700;
+  transition: transform 0.15s;
+  position: relative;
+}
+.phase-label {
+  font-size: 0.65rem;
+  color: #888;
+  margin-top: 0.4rem;
+  text-align: center;
+  max-width: 80px;
+  line-height: 1.3;
+}
+.phase-item.current .phase-label { color: #fff; }
+
+/* Traffic light colours */
+.tl-grey   { background: #2d3148; border-color: #444; color: #888; }
+.tl-blue   { background: #1a3a6b; border-color: #4da6ff; color: #7ab4ff; }
+.tl-green  { background: #0d3d2a; border-color: #4caf82; color: #4caf82; }
+.tl-amber  { background: #4a3000; border-color: #ffb84d; color: #ffb84d; }
+.tl-red    { background: #4a0d0d; border-color: #ff6b6b; color: #ff6b6b; }
+
+.tl-blue .phase-pulse {
+  position: absolute;
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  border: 2px solid #4da6ff;
+  animation: pulse 1.5s ease-out infinite;
+}
+@keyframes pulse {
+  0%   { transform: scale(1); opacity: 0.8; }
+  100% { transform: scale(1.7); opacity: 0; }
+}
+</style>
+{% endblock %}
+
+{% block content %}
+<div style="margin-bottom:1rem;">
+  <a href="{% url 'deploy:index' %}" style="color:#666; font-size:0.8rem;">← Deployments</a>
+</div>
+
+<!-- Header -->
+<div style="display:flex; align-items:flex-start; justify-content:space-between; margin-bottom:1.5rem; flex-wrap:wrap; gap:1rem;">
+  <div>
+    <h1 style="font-size:1.4rem; font-weight:700;">{{ deployment.site_name }}</h1>
+    <p style="color:#666; font-size:0.85rem; margin-top:0.25rem;">
+      {{ deployment.template_name }} <code>{{ deployment.template_version }}</code>
+      &nbsp;·&nbsp; {{ deployment.devices.count }} devices
+      {% if deployment.operator %}&nbsp;·&nbsp; {{ deployment.operator }}{% endif %}
+    </p>
+  </div>
+  <div style="text-align:right;">
+    {% if deployment.status == 'ingested' %}
+      <span class="badge badge-grey">Ingested</span>
+    {% elif deployment.status == 'running' %}
+      <span class="badge badge-blue">Running</span>
+    {% elif deployment.status == 'completed' %}
+      <span class="badge badge-green">Completed</span>
+    {% elif deployment.status == 'failed' %}
+      <span class="badge badge-red">Failed</span>
+    {% elif deployment.status == 'aborted' %}
+      <span class="badge badge-amber">Aborted</span>
+    {% endif %}
+    <div style="margin-top:0.5rem;">
+      <div class="progress-bar-wrap" style="width:180px; display:inline-block;">
+        <div class="progress-bar-fill" id="progress-bar" style="width:{{ deployment.progress_pct }}%;"></div>
+      </div>
+      <small style="color:#666; font-size:0.75rem; margin-left:0.5rem;" id="progress-pct">{{ deployment.progress_pct }}%</small>
+    </div>
+  </div>
+</div>
+
+<!-- Phase Pipeline -->
+<div class="card">
+  <div class="card-title">Phase Pipeline</div>
+  <div class="phase-pipeline" id="phase-pipeline">
+    {% for phase in phases %}
+      {% if not forloop.first %}
+        <div class="phase-connector"></div>
+      {% endif %}
+      <a href="{% url 'deploy:phase_detail' deployment.id phase.phase_number %}"
+         class="phase-item {% if phase.status == 'running' %}current{% endif %}"
+         title="{{ phase.phase_name }} — {{ phase.get_status_display }}"
+         id="phase-{{ phase.phase_number }}">
+        <div class="phase-dot tl-{{ phase.traffic_light }}">
+          {% if phase.status == 'running' %}<div class="phase-pulse"></div>{% endif %}
+          {{ phase.phase_number }}
+        </div>
+        <div class="phase-label">{{ phase.phase_name }}</div>
+      </a>
+    {% endfor %}
+  </div>
+</div>
+
+<!-- Device Grid -->
+<div class="card">
+  <div class="card-title">Devices ({{ devices|length }})</div>
+  <table id="device-grid">
+    <thead>
+      <tr>
+        <th>Hostname</th>
+        <th>Serial</th>
+        <th>Role</th>
+        <th>Platform</th>
+        <th>Status</th>
+        <th>Current Phase</th>
+        <th>Discovered IP</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for device in devices %}
+      <tr id="device-row-{{ device.id }}">
+        <td><strong>{{ device.hostname }}</strong></td>
+        <td><code style="font-size:0.8rem; color:#888;">{{ device.serial_number }}</code></td>
+        <td>{{ device.role }}</td>
+        <td style="color:#888; font-size:0.8rem;">{{ device.platform }}</td>
+        <td>
+          <span class="badge badge-{{ device.status_colour }}" id="device-status-{{ device.id }}">
+            {{ device.get_status_display }}
+          </span>
+        </td>
+        <td style="color:#888; font-size:0.8rem;" id="device-phase-{{ device.id }}">
+          {% if device.current_phase %}{{ device.current_phase.phase_name }}{% else %}—{% endif %}
+        </td>
+        <td style="font-family:monospace; font-size:0.8rem;" id="device-ip-{{ device.id }}">
+          {{ device.discovered_ip|default:"—" }}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<script src="{% static 'js/phase-tracker.js' %}"></script>
+<script src="{% static 'js/device-grid.js' %}"></script>
+<script>
+  const DEPLOYMENT_ID = {{ deployment.id }};
+  initPhaseTracker(DEPLOYMENT_ID);
+  initDeviceGrid(DEPLOYMENT_ID);
+</script>
+{% endblock %}
