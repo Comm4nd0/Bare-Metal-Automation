@@ -13,15 +13,14 @@ from bare_metal_automation.models import (
     DeviceState,
     DiscoveredDevice,
 )
+from bare_metal_automation.settings import (
+    FIRMWARE_DIR,
+    MEINBERG_API_BASE,
+    MEINBERG_DEFAULT_PASSWORD,
+    MEINBERG_DEFAULT_USER,
+)
 
 logger = logging.getLogger(__name__)
-
-# Default credentials for factory-new Meinberg devices
-MEINBERG_DEFAULT_USER = "admin"
-MEINBERG_DEFAULT_PASSWORD = ""
-
-# Meinberg web API paths
-MEINBERG_API_BASE = "/api/v1"
 
 
 class MeinbergProvisioner:
@@ -39,7 +38,7 @@ class MeinbergProvisioner:
     def __init__(
         self,
         inventory: DeploymentInventory,
-        firmware_dir: str = "configs/firmware",
+        firmware_dir: str = FIRMWARE_DIR,
         http_server: str | None = None,
     ) -> None:
         self.inventory = inventory

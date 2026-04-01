@@ -9,7 +9,7 @@ from __future__ import annotations
 import json
 import logging
 from dataclasses import asdict, dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from bare_metal_automation.models import CablingResult
 
@@ -56,7 +56,7 @@ class ValidationReport:
 
     deployment_name: str
     generated_at: str = field(
-        default_factory=lambda: datetime.now(timezone.utc).isoformat()
+        default_factory=lambda: datetime.now(UTC).isoformat()
     )
     devices: list[DeviceCablingReport] = field(default_factory=list)
 

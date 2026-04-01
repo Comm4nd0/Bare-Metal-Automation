@@ -579,13 +579,15 @@ Implemented the full BMA Engine Sprint 4, filling in module stubs and adding new
 
 ### What still needs to be built (from ROADMAP)
 
-- **Milestone 1 (Foundation/MVP)**: ~~DHCP server wrapper~~, ~~CDP collector~~, ~~serial collector~~, ~~device matcher~~, ~~mock device simulator~~, unit tests for new sub-modules
+- **Milestone 1 (Foundation/MVP)**: ~~DHCP server wrapper~~, ~~CDP collector~~, ~~serial collector~~, ~~device matcher~~, ~~mock device simulator~~, ~~unit tests for new sub-modules~~
 - **Milestone 2 (Cabling Validation)**: ~~Intent parser~~, ~~cabling diff engine~~, ~~adaptation engine~~, ~~report generator~~
-- **Milestone 3 (Network Config)**: ~~Config renderer~~, ~~dead man's switch~~, ~~post-config validator~~, Ansible playbooks, rollback handler
-- **Milestone 4 (Server Provisioning)**: ~~Redfish client~~, ~~iLO operations~~, ~~firmware update~~, ~~BIOS config~~, ~~virtual media~~, ~~OS installer~~, ~~PXE fallback~~
+- **Milestone 3 (Network Config)**: ~~Config renderer~~, ~~dead man's switch~~, ~~post-config validator~~, ~~router templates~~, Ansible playbooks, rollback handler
+- **Milestone 4 (Server Provisioning)**: ~~Redfish client~~, ~~iLO operations~~, ~~firmware update~~, ~~BIOS config~~, ~~virtual media~~, ~~OS installer~~, ~~PXE fallback~~, ~~server config templates (iLO + BIOS)~~
 - **Milestone 5 (Dashboard)**: ~~WebSocket events (server-side)~~, D3.js topology renderer (frontend JS), log viewer enhancements, ~~deploy button~~, ~~simulation mode~~
 - **Milestone 6 (Hardening)**: Serial console fallback, retry logic, ~~state persistence~~, multi-NIC, LLDP
-- **VMware sprint**: vCenter teardown, NSX teardown, VM teardown (stubbed in `factory_reset/reset.py`)
+- **CI/CD**: ~~GitHub Actions workflow~~, ~~pre-commit hooks~~, ~~Makefile~~, ~~Dockerfile + docker-compose~~
+- **VMware sprint**: vCenter teardown, NSX teardown, VM teardown (guarded with `NotImplementedError` in `factory_reset/reset.py`)
+- **Integration tests**: End-to-end pipeline tests with mock hardware
 
 ### Session 12 — Sprint 1: NetBox Site Lifecycle Foundation
 
@@ -615,6 +617,36 @@ Implemented the full BMA Engine Sprint 4, filling in module stubs and adding new
 - `site_regenerate --mode fix` creates missing objects only (never deletes extras)
 - `site_regenerate --mode rebuild` requires `--confirm` flag (destructive)
 - Fleet scan exit code 1 if any site is outdated (useful for CI gates)
+
+### Session 14 — Gap Analysis & Hardening
+
+**Date**: 2026-04-01
+**Branch**: `claude/review-automation-gaps-XHGoz`
+
+**What was done**:
+- Full gap analysis of the entire automation codebase (88 Python files, ~16,900 LOC)
+- **Centralized settings** — Created `src/bare_metal_automation/settings.py`: all credentials, timeouts, file paths, SSL verification, and API paths extracted from 8+ modules into a single env-var-configurable module. Modules updated to import from settings.
+- **SSL verification configurable** — Added `BMA_VERIFY_SSL` env var (default `False` for lab/field self-signed certs, set to `1`/`true`/`yes` for production)
+- **VMware guards** — Replaced silent `pass`/`return True` stubs in `factory_reset/reset.py` phases 1-3 and `factory_reset/sanitise.py` VM disk zeroing with explicit `NotImplementedError` (dry_run mode still works)
+- **CI/CD pipeline** — Created `.pre-commit-config.yaml` (ruff + mypy + standard hooks), `Makefile` (lint/format/typecheck/test/clean targets), `.github/workflows/ci.yml` (Python 3.11, lint + typecheck + test on push/PR)
+- **Docker** — Created `Dockerfile` (python:3.11-slim + daphne ASGI) and `docker-compose.yml` (web + Redis for Channels)
+- **Router config templates** — Created `configs/templates/routers/wan-router.j2` (BGP, WAN interfaces, route-maps, NAT) and `distribution-router.j2` (OSPF, HSRP, DHCP relay, inter-VLAN routing)
+- **Server config templates** — Created `configs/templates/servers/ilo-config.j2` (iLO network, users, SNMP, NTP) and `bios-config.j2` (boot order, performance, virtualization, power)
+- **Unit tests** — Added 7 new test files (126 new tests, 149 total passing):
+  - `test_settings.py` — env var overrides, credential parsing, defaults
+  - `test_discovery.py` — DHCP lease parsing, SSH probing, CDP neighbor extraction
+  - `test_topology.py` — graph construction, BFS depth, config ordering
+  - `test_cabling.py` — connection matching, report generation
+  - `test_provisioner.py` — Redfish client, provisioning sequence, error handling
+  - `test_rollback.py` — server/meinberg/orchestrator rollback
+  - `test_netbox.py` — API client, inventory mapping, error handling
+- **Lint fixes** — Auto-fixed import sorting, unused imports, deprecated patterns across all modified files
+
+**Decisions made**:
+- SSL defaults to `False` (not `True`) because BMA operates on isolated bootstrap networks with self-signed iLO/Meinberg certs; production users can enable via env var
+- VMware stubs now raise `NotImplementedError` instead of silently passing — prevents accidental use in production; dry_run mode still skips these phases
+- Credentials remain in env vars (not a secrets manager) to keep field deployment simple — operators set vars in their shell profile or `.env` file
+- Test coverage increased from ~1% to ~15%; priority was given to modules with highest blast radius (provisioner, rollback, discovery)
 - Pipeline exports inventory compatible with existing `bare_metal_automation/inventory.py` loader
 
 ### Known issues / open items

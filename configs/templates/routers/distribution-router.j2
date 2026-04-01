@@ -1,0 +1,410 @@
+!
+! ============================================================
+!  BMA — {{ hostname }}
+!  Role  : Distribution / Internal Router
+!          OSPF, inter-VLAN routing, DHCP relay, HSRP,
+!          route summarization between access and core.
+!  Serial: {{ serial }}
+!  Site  : {{ site_slug | upper }}
+!  Generated: {{ "now" | default("") }}
+! ============================================================
+!
+hostname {{ hostname }}
+ip domain name {{ domain_name }}
+!
+! -- Service hardening ----------------------------------------
+no service pad
+service tcp-keepalives-in
+service tcp-keepalives-out
+service timestamps log datetime msec localtime show-timezone
+service timestamps debug datetime msec localtime show-timezone
+service password-encryption
+no ip source-route
+no ip gratuitous-arps
+no ip http server
+no ip http secure-server
+!
+! -- Local auth -----------------------------------------------
+aaa new-model
+{% if tacacs_key %}
+tacacs server TACACS-PRIMARY
+ address ipv4 {{ ad_server }}
+ key {{ tacacs_key }}
+ timeout 5
+!
+aaa group server tacacs+ BMA-TACACS
+ server name TACACS-PRIMARY
+!
+aaa authentication login default group BMA-TACACS local
+aaa authorization exec default group BMA-TACACS local if-authenticated
+aaa accounting exec default start-stop group BMA-TACACS
+{% else %}
+aaa authentication login default local
+{% endif %}
+!
+username admin privilege 15 secret {{ enable_secret }}
+enable secret {{ enable_secret }}
+!
+! -- SSH ------------------------------------------------------
+crypto key generate rsa modulus 2048
+ip ssh version 2
+ip ssh time-out 60
+ip ssh authentication-retries 3
+!
+! -- NTP ------------------------------------------------------
+{% for ntp in ntp_servers %}
+ntp server {{ ntp }} prefer
+{% endfor %}
+clock timezone UTC 0 0
+!
+! -- DNS ------------------------------------------------------
+{% for dns in dns_servers %}
+ip name-server {{ dns }}
+{% endfor %}
+!
+! -- Logging --------------------------------------------------
+{% if syslog_server %}
+logging host {{ syslog_server }}
+logging trap informational
+{% endif %}
+logging buffered 16384
+no logging console
+!
+! -- SNMP -----------------------------------------------------
+{% if snmp_community_ro %}
+snmp-server community {{ snmp_community_ro }} RO
+snmp-server contact BMA-NOC
+snmp-server location {{ site_slug | upper }}-DISTRIBUTION
+{% endif %}
+!
+! ============================================================
+!  Loopback — Router ID
+! ============================================================
+!
+interface Loopback0
+ description ROUTER-ID
+ ip address {{ router_id }} 255.255.255.255
+ no shutdown
+!
+! ============================================================
+!  Uplink Interfaces — toward core / WAN routers
+! ============================================================
+!
+{% for iface in uplink_interfaces %}
+interface {{ iface.name }}
+ description {{ iface.description }} — UPLINK TO CORE
+ ip address {{ iface.ip_address }} {{ iface.ip_mask }}
+{% if iface.ospf_cost is defined %}
+ ip ospf cost {{ iface.ospf_cost }}
+{% endif %}
+ ip ospf authentication message-digest
+ ip ospf message-digest-key 1 md5 {{ ospf_auth_key }}
+ no shutdown
+!
+{% endfor %}
+!
+! ============================================================
+!  Downlink Interfaces — toward access switches
+! ============================================================
+!
+{% for iface in downlink_interfaces | default([]) %}
+interface {{ iface.name }}
+ description {{ iface.description }} — DOWNLINK TO ACCESS
+ ip address {{ iface.ip_address }} {{ iface.ip_mask }}
+{% if iface.ospf_cost is defined %}
+ ip ospf cost {{ iface.ospf_cost }}
+{% endif %}
+ ip ospf authentication message-digest
+ ip ospf message-digest-key 1 md5 {{ ospf_auth_key }}
+ no shutdown
+!
+{% endfor %}
+!
+! ============================================================
+!  SVIs — Inter-VLAN Routing with HSRP
+! ============================================================
+!
+! Management SVI
+interface Vlan100
+ description MGMT — {{ hostname }}
+ ip address {{ mgmt_ip }} {{ mgmt_mask }}
+{% if hsrp_enabled | default(false) %}
+ standby version 2
+ standby 100 ip {{ mgmt_vip }}
+ standby 100 priority {{ hsrp_priority | default(110) }}
+ standby 100 preempt delay minimum 60
+ standby 100 authentication md5 key-string {{ hsrp_auth_key }}
+ standby 100 track {{ uplink_track_id | default(1) }} decrement 20
+{% endif %}
+ no shutdown
+!
+interface Vlan200
+ description VOICE
+ ip address {{ voice_ip | default("10.0.200.2") }} {{ voice_mask | default("255.255.255.0") }}
+ ip helper-address {{ dhcp_server }}
+{% if hsrp_enabled | default(false) %}
+ standby version 2
+ standby 200 ip {{ voice_vip | default("10.0.200.1") }}
+ standby 200 priority {{ hsrp_priority | default(110) }}
+ standby 200 preempt delay minimum 60
+ standby 200 authentication md5 key-string {{ hsrp_auth_key }}
+{% endif %}
+ no shutdown
+!
+interface Vlan400
+ description SERVERS
+ ip address {{ servers_ip | default("10.0.40.2") }} {{ servers_mask | default("255.255.255.0") }}
+ ip helper-address {{ dhcp_server }}
+{% if hsrp_enabled | default(false) %}
+ standby version 2
+ standby 400 ip {{ servers_vip | default("10.0.40.1") }}
+ standby 400 priority {{ hsrp_priority | default(110) }}
+ standby 400 preempt delay minimum 60
+ standby 400 authentication md5 key-string {{ hsrp_auth_key }}
+{% endif %}
+ no shutdown
+!
+interface Vlan600
+ description ILO — server management
+ ip address {{ ilo_ip | default("10.0.60.2") }} {{ ilo_mask | default("255.255.255.0") }}
+ ip helper-address {{ dhcp_server }}
+{% if hsrp_enabled | default(false) %}
+ standby version 2
+ standby 600 ip {{ ilo_vip | default("10.0.60.1") }}
+ standby 600 priority {{ hsrp_priority | default(110) }}
+ standby 600 preempt delay minimum 60
+ standby 600 authentication md5 key-string {{ hsrp_auth_key }}
+{% endif %}
+ no shutdown
+!
+interface Vlan700
+ description AD — Active Directory
+ ip address {{ ad_vlan_ip | default("10.0.70.2") }} {{ ad_vlan_mask | default("255.255.255.0") }}
+{% if hsrp_enabled | default(false) %}
+ standby version 2
+ standby 700 ip {{ ad_vlan_vip | default("10.0.70.1") }}
+ standby 700 priority {{ hsrp_priority | default(110) }}
+ standby 700 preempt delay minimum 60
+ standby 700 authentication md5 key-string {{ hsrp_auth_key }}
+{% endif %}
+ no shutdown
+!
+interface Vlan800
+ description WIRELESS
+ ip address {{ wireless_ip | default("10.0.80.2") }} {{ wireless_mask | default("255.255.255.0") }}
+ ip helper-address {{ dhcp_server }}
+{% if hsrp_enabled | default(false) %}
+ standby version 2
+ standby 800 ip {{ wireless_vip | default("10.0.80.1") }}
+ standby 800 priority {{ hsrp_priority | default(110) }}
+ standby 800 preempt delay minimum 60
+ standby 800 authentication md5 key-string {{ hsrp_auth_key }}
+{% endif %}
+ no shutdown
+!
+interface Vlan900
+ description STORAGE
+ ip address {{ storage_ip | default("10.0.90.2") }} {{ storage_mask | default("255.255.255.0") }}
+{% if hsrp_enabled | default(false) %}
+ standby version 2
+ standby 900 ip {{ storage_vip | default("10.0.90.1") }}
+ standby 900 priority {{ hsrp_priority | default(110) }}
+ standby 900 preempt delay minimum 60
+ standby 900 authentication md5 key-string {{ hsrp_auth_key }}
+{% endif %}
+ no shutdown
+!
+! ============================================================
+!  Mission Tenant SVIs — with HSRP and DHCP relay
+! ============================================================
+!
+{% for tenant in mission_tenants %}
+interface Vlan{{ tenant.user_vlan }}
+ description {{ tenant.name }}_USERS
+{% if tenant.user_gateway %}
+ ip address {{ tenant.user_gateway }} {{ tenant.user_mask }}
+{% endif %}
+ ip helper-address {{ dhcp_server }}
+{% if hsrp_enabled | default(false) and tenant.user_vip is defined %}
+ standby version 2
+ standby {{ tenant.user_vlan }} ip {{ tenant.user_vip }}
+ standby {{ tenant.user_vlan }} priority {{ hsrp_priority | default(110) }}
+ standby {{ tenant.user_vlan }} preempt delay minimum 60
+ standby {{ tenant.user_vlan }} authentication md5 key-string {{ hsrp_auth_key }}
+ standby {{ tenant.user_vlan }} track {{ uplink_track_id | default(1) }} decrement 20
+{% endif %}
+ no shutdown
+!
+interface Vlan{{ tenant.apps_vlan }}
+ description {{ tenant.name }}_APPS
+{% if tenant.apps_gateway %}
+ ip address {{ tenant.apps_gateway }} {{ tenant.apps_mask }}
+{% endif %}
+ ip helper-address {{ dhcp_server }}
+{% if hsrp_enabled | default(false) and tenant.apps_vip is defined %}
+ standby version 2
+ standby {{ tenant.apps_vlan }} ip {{ tenant.apps_vip }}
+ standby {{ tenant.apps_vlan }} priority {{ hsrp_priority | default(110) }}
+ standby {{ tenant.apps_vlan }} preempt delay minimum 60
+ standby {{ tenant.apps_vlan }} authentication md5 key-string {{ hsrp_auth_key }}
+{% endif %}
+ no shutdown
+!
+interface Vlan{{ tenant.data_vlan }}
+ description {{ tenant.name }}_DATA
+{% if tenant.data_gateway %}
+ ip address {{ tenant.data_gateway }} {{ tenant.data_mask }}
+{% endif %}
+ ip helper-address {{ dhcp_server }}
+{% if hsrp_enabled | default(false) and tenant.data_vip is defined %}
+ standby version 2
+ standby {{ tenant.data_vlan }} ip {{ tenant.data_vip }}
+ standby {{ tenant.data_vlan }} priority {{ hsrp_priority | default(110) }}
+ standby {{ tenant.data_vlan }} preempt delay minimum 60
+ standby {{ tenant.data_vlan }} authentication md5 key-string {{ hsrp_auth_key }}
+{% endif %}
+ no shutdown
+!
+{% endfor %}
+!
+! ============================================================
+!  OSPF
+! ============================================================
+!
+router ospf 1
+ router-id {{ router_id }}
+ passive-interface default
+{% for iface in uplink_interfaces %}
+ no passive-interface {{ iface.name }}
+{% endfor %}
+{% for iface in downlink_interfaces | default([]) %}
+ no passive-interface {{ iface.name }}
+{% endfor %}
+ !
+ ! Core-facing networks
+ network {{ router_id }} 0.0.0.0 area 0
+{% for iface in uplink_interfaces %}
+ network {{ iface.ip_address }} 0.0.0.0 area 0
+{% endfor %}
+ !
+ ! Downlink networks
+{% for iface in downlink_interfaces | default([]) %}
+ network {{ iface.ip_address }} 0.0.0.0 area {{ iface.ospf_area | default(0) }}
+{% endfor %}
+ !
+ ! SVI networks
+ network {{ mgmt_ip }} 0.0.0.0 area 0
+{% for tenant in mission_tenants %}
+{% if tenant.user_gateway %}
+ network {{ tenant.user_subnet }} 0.0.0.255 area 0
+{% endif %}
+{% if tenant.apps_gateway %}
+ network {{ tenant.apps_subnet }} 0.0.0.255 area 0
+{% endif %}
+{% if tenant.data_gateway %}
+ network {{ tenant.data_subnet }} 0.0.0.255 area 0
+{% endif %}
+{% endfor %}
+ !
+ area 0 authentication message-digest
+{% if ospf_summary_prefix is defined %}
+ area 0 range {{ ospf_summary_prefix }} {{ ospf_summary_mask }}
+{% endif %}
+!
+! ============================================================
+!  DHCP Relay (ip helper already on SVIs above)
+!  Exclude gateway addresses from any local DHCP pools
+! ============================================================
+!
+{% if dhcp_excluded_ranges | default([]) %}
+{% for range in dhcp_excluded_ranges %}
+ip dhcp excluded-address {{ range.start }} {{ range.end }}
+{% endfor %}
+{% endif %}
+!
+! ============================================================
+!  Uplink Tracking — for HSRP failover
+! ============================================================
+!
+{% if hsrp_enabled | default(false) %}
+{% for iface in uplink_interfaces %}
+track {{ uplink_track_id | default(1) }} interface {{ iface.name }} line-protocol
+{% endfor %}
+{% endif %}
+!
+! ============================================================
+!  Static Routes
+! ============================================================
+!
+ip route 0.0.0.0 0.0.0.0 {{ mgmt_gateway }}
+{% for route in static_routes | default([]) %}
+ip route {{ route.network }} {{ route.mask }} {{ route.next_hop }}{% if route.name is defined %} name {{ route.name }}{% endif %}
+
+{% endfor %}
+!
+! ============================================================
+!  Inter-tenant ACLs — deny cross-mission, allow mgmt services
+! ============================================================
+!
+{% for tenant in mission_tenants %}
+ip access-list extended ACL_MISSION{{ tenant.index }}_EGRESS
+ remark Allow DNS to management zone
+{% for dns in dns_servers %}
+ permit udp {{ tenant.user_subnet }} 0.0.0.255 host {{ dns }} eq 53
+ permit udp {{ tenant.apps_subnet }} 0.0.0.255 host {{ dns }} eq 53
+{% endfor %}
+ remark Allow NTP to management zone
+{% for ntp in ntp_servers %}
+ permit udp {{ tenant.user_subnet }} 0.0.0.255 host {{ ntp }} eq 123
+{% endfor %}
+ remark Allow AD / LDAP
+{% if ad_server %}
+ permit tcp {{ tenant.user_subnet }} 0.0.0.255 host {{ ad_server }} eq 389
+ permit tcp {{ tenant.user_subnet }} 0.0.0.255 host {{ ad_server }} eq 636
+{% endif %}
+ remark Deny cross-tenant traffic
+{% for other in mission_tenants if other.index != tenant.index %}
+{% if other.user_subnet %}
+ deny ip {{ tenant.user_subnet }} 0.0.0.255 {{ other.user_subnet }} 0.0.0.255
+ deny ip {{ tenant.user_subnet }} 0.0.0.255 {{ other.apps_subnet }} 0.0.0.255
+ deny ip {{ tenant.user_subnet }} 0.0.0.255 {{ other.data_subnet }} 0.0.0.255
+{% endif %}
+{% endfor %}
+ permit ip {{ tenant.user_subnet }} 0.0.0.255 any
+ permit ip {{ tenant.apps_subnet }} 0.0.0.255 any
+ permit ip {{ tenant.data_subnet }} 0.0.0.255 any
+!
+{% endfor %}
+!
+! Apply ACLs to mission SVIs
+{% for tenant in mission_tenants %}
+interface Vlan{{ tenant.user_vlan }}
+ ip access-group ACL_MISSION{{ tenant.index }}_EGRESS out
+!
+{% endfor %}
+!
+! ============================================================
+!  Console and VTY
+! ============================================================
+!
+banner motd ^
+*******************************************************************************
+*  AUTHORIZED ACCESS ONLY — {{ hostname | upper }}                            *
+*  Distribution Router — {{ site_slug | upper }}                              *
+*  Unauthorized access is prohibited.                                         *
+*******************************************************************************
+^
+!
+line con 0
+ exec-timeout 10 0
+ logging synchronous
+ transport preferred none
+!
+line vty 0 15
+ exec-timeout 15 0
+ logging synchronous
+ transport input ssh
+ transport output none
+ login authentication default
+!
+end

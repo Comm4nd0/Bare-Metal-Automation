@@ -12,7 +12,6 @@ import time
 
 from bare_metal_automation.provisioner.redfish import (
     REDFISH_MANAGERS,
-    REDFISH_ROOT,
     REDFISH_SYSTEMS,
     REDFISH_UPDATE_SVC,
     RedfishClient,

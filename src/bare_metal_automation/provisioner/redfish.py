@@ -131,7 +131,7 @@ class RedfishClient:
             self._session_token = None
         self._http.close()
 
-    def __enter__(self) -> "RedfishClient":
+    def __enter__(self) -> RedfishClient:
         return self
 
     def __exit__(self, *_) -> None:  # type: ignore[override]

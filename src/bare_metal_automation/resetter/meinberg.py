@@ -13,7 +13,7 @@ from bare_metal_automation.models import (
     DeviceState,
     DiscoveredDevice,
 )
-from bare_metal_automation.provisioner.meinberg import (
+from bare_metal_automation.settings import (
     MEINBERG_API_BASE,
     MEINBERG_DEFAULT_PASSWORD,
     MEINBERG_DEFAULT_USER,

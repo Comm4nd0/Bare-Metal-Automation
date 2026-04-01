@@ -10,21 +10,15 @@ import requests
 from requests.auth import HTTPBasicAuth
 
 from bare_metal_automation.models import DeviceState, DiscoveredDevice
+from bare_metal_automation.settings import (
+    ILO_DEFAULT_PASSWORD,
+    ILO_DEFAULT_USER,
+    REBOOT_WAIT,
+    REDFISH_MANAGERS,
+    REDFISH_SYSTEMS,
+)
 
 logger = logging.getLogger(__name__)
-
-# Redfish API paths
-REDFISH_BASE = "/redfish/v1"
-REDFISH_SYSTEMS = f"{REDFISH_BASE}/Systems/1"
-REDFISH_MANAGERS = f"{REDFISH_BASE}/Managers/1"
-
-# Default iLO credentials (may be factory or provisioned)
-ILO_DEFAULT_USER = "Administrator"
-ILO_DEFAULT_PASSWORD = "admin"
-
-# Timeouts
-REBOOT_WAIT = 120  # seconds to wait after reset actions
-POLL_INTERVAL = 15
 
 
 class RedfishClient:

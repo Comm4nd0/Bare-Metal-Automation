@@ -13,22 +13,18 @@ from bare_metal_automation.models import (
     DeviceState,
     DiscoveredDevice,
 )
+from bare_metal_automation.settings import (
+    ILO_DEFAULT_PASSWORD,
+    ILO_DEFAULT_USER,
+    LONG_OP_TIMEOUT,
+    POLL_INTERVAL,
+    REDFISH_BASE,
+    REDFISH_MANAGERS,
+    REDFISH_SYSTEMS,
+    REDFISH_UPDATE,
+)
 
 logger = logging.getLogger(__name__)
-
-# Default iLO credentials for factory-new servers
-ILO_DEFAULT_USER = "Administrator"
-ILO_DEFAULT_PASSWORD = "admin"
-
-# Redfish API base paths
-REDFISH_BASE = "/redfish/v1"
-REDFISH_SYSTEMS = f"{REDFISH_BASE}/Systems/1"
-REDFISH_MANAGERS = f"{REDFISH_BASE}/Managers/1"
-REDFISH_UPDATE = f"{REDFISH_BASE}/UpdateService"
-
-# Timeout for long-running operations (firmware, OS install)
-LONG_OP_TIMEOUT = 3600  # 1 hour
-POLL_INTERVAL = 30
 
 
 class RedfishClient:

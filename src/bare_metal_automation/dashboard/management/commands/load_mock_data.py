@@ -1,7 +1,6 @@
 """Management command to populate the database with mock deployment data."""
 
 from django.core.management.base import BaseCommand
-from django.utils import timezone
 
 from bare_metal_automation.dashboard.models import CablingResult, Deployment, DeploymentLog, Device
 

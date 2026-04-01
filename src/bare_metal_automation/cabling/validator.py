@@ -289,4 +289,4 @@ class CablingValidator:
         if blockers:
             console.print(f"\n  [bold red]{blockers} blocking issue(s) — deployment cannot proceed[/]")
         else:
-            console.print(f"\n  [bold green]No blocking issues — ready to deploy[/]")
+            console.print("\n  [bold green]No blocking issues — ready to deploy[/]")

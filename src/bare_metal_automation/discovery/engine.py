@@ -12,15 +12,9 @@ from bare_metal_automation.models import (
     DeviceState,
     DiscoveredDevice,
 )
+from bare_metal_automation.settings import DEFAULT_CREDENTIALS, LEASE_FILE
 
 logger = logging.getLogger(__name__)
-
-# Factory default credentials to try in order
-DEFAULT_CREDENTIALS = [
-    ("cisco", "cisco"),
-    ("admin", "admin"),
-    ("admin", ""),
-]
 
 
 class DiscoveryEngine:
@@ -31,12 +25,12 @@ class DiscoveryEngine:
         bootstrap_subnet: str,
         laptop_ip: str,
         ssh_timeout: int = 30,
-        lease_file: str = "/var/lib/misc/dnsmasq.leases",
+        lease_file: str | None = None,
     ) -> None:
         self.bootstrap_subnet = bootstrap_subnet
         self.laptop_ip = laptop_ip
         self.ssh_timeout = ssh_timeout
-        self.lease_file = Path(lease_file)
+        self.lease_file = Path(lease_file or LEASE_FILE)
 
     def get_dhcp_leases(self) -> dict[str, str]:
         """Parse dnsmasq lease file. Returns {ip: mac}."""

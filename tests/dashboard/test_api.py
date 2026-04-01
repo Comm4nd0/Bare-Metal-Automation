@@ -1,20 +1,13 @@
 """Tests for the deploy REST API."""
 
 import pytest
-from django.contrib.auth.models import User
-from django.urls import reverse
-
 from deploy.models import (
     PHASE_NAMES,
     Deployment,
     DeploymentDevice,
     DeploymentPhase,
-    DeploymentStatus,
     FactoryReset,
-    PhaseStatus,
-    ResetPhase,
 )
-
 
 # ---------------------------------------------------------------------------
 # Fixtures

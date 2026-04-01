@@ -12,14 +12,14 @@ from bare_metal_automation.models import (
     DeviceState,
     DiscoveredDevice,
 )
-from bare_metal_automation.provisioner.server import (
+from bare_metal_automation.provisioner.server import RedfishClient
+from bare_metal_automation.settings import (
     ILO_DEFAULT_PASSWORD,
     ILO_DEFAULT_USER,
     POLL_INTERVAL,
     REDFISH_BASE,
     REDFISH_MANAGERS,
     REDFISH_SYSTEMS,
-    RedfishClient,
 )
 
 logger = logging.getLogger(__name__)
