@@ -1,0 +1,135 @@
+{% extends "base.html" %}
+{% block title %}Phase {{ phase.phase_number }}: {{ phase.phase_name }} — BMA{% endblock %}
+{% block nav_deploy %}active{% endblock %}
+
+{% block content %}
+<div style="margin-bottom:1rem; font-size:0.8rem; color:#666;">
+  <a href="{% url 'deploy:index' %}">Deployments</a>
+  › <a href="{% url 'deploy:deployment_detail' deployment.id %}">{{ deployment.site_name }}</a>
+  › Phase {{ phase.phase_number }}
+</div>
+
+<!-- Phase Header -->
+<div style="display:flex; align-items:center; gap:1rem; margin-bottom:1.5rem; flex-wrap:wrap;">
+  <div class="tl-dot-large tl-{{ phase.traffic_light }}" style="
+    width:48px; height:48px; border-radius:50%; border:2px solid;
+    display:flex; align-items:center; justify-content:center;
+    font-size:1.1rem; font-weight:700; flex-shrink:0;
+  ">{{ phase.phase_number }}</div>
+  <div>
+    <h1 style="font-size:1.3rem; font-weight:700;">{{ phase.phase_name }}</h1>
+    <p style="color:#666; font-size:0.85rem; margin-top:0.2rem;">
+      {{ deployment.site_name }} &nbsp;·&nbsp;
+      {% if phase.started_at %}
+        Started {{ phase.started_at|date:"H:i:s" }}
+        {% if phase.duration_seconds %}
+          &nbsp;·&nbsp; {{ phase.duration_seconds|floatformat:1 }}s
+        {% endif %}
+      {% else %}
+        Not started
+      {% endif %}
+      {% if phase.warning_count %}
+        &nbsp;·&nbsp; <span style="color:#ffb84d;">{{ phase.warning_count }} warning(s)</span>
+      {% endif %}
+    </p>
+  </div>
+  <div style="margin-left:auto;">
+    {% if phase.status == 'pending' %}
+      <span class="badge badge-grey">Pending</span>
+    {% elif phase.status == 'running' %}
+      <span class="badge badge-blue">Running</span>
+    {% elif phase.status == 'completed' %}
+      <span class="badge badge-green">Completed</span>
+    {% elif phase.status == 'warning' %}
+      <span class="badge badge-amber">Warning</span>
+    {% elif phase.status == 'failed' %}
+      <span class="badge badge-red">Failed</span>
+    {% elif phase.status == 'skipped' %}
+      <span class="badge badge-grey">Skipped</span>
+    {% endif %}
+  </div>
+</div>
+
+{% if phase.error_message %}
+<div class="alert alert-danger">
+  <strong>Error:</strong> {{ phase.error_message }}
+</div>
+{% endif %}
+
+<!-- Per-device status -->
+<div class="card">
+  <div class="card-title">Devices in this phase</div>
+  {% if phase_devices %}
+  <table>
+    <thead>
+      <tr>
+        <th>Hostname</th>
+        <th>Serial</th>
+        <th>Status</th>
+        <th>Error</th>
+        <th>Last Log</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for device in phase_devices %}
+      <tr>
+        <td><strong>{{ device.hostname }}</strong><br><small style="color:#666;">{{ device.role }}</small></td>
+        <td><code style="font-size:0.8rem; color:#888;">{{ device.serial_number }}</code></td>
+        <td><span class="badge badge-{{ device.status_colour }}">{{ device.get_status_display }}</span></td>
+        <td style="color:#ff6b6b; font-size:0.8rem; max-width:300px;">{{ device.error_message|default:"—" }}</td>
+        <td style="font-size:0.8rem; color:#888;">
+          {% with device.logs.last as last_log %}
+            {% if last_log %}
+              <span class="badge
+                {% if last_log.level == 'ERROR' %}badge-red
+                {% elif last_log.level == 'WARN' %}badge-amber
+                {% else %}badge-grey{% endif %}"
+                style="font-size:0.65rem;">{{ last_log.level }}</span>
+              {{ last_log.message|truncatechars:80 }}
+            {% else %}—{% endif %}
+          {% endwith %}
+        </td>
+      </tr>
+      <!-- Expandable log rows -->
+      {% if device.logs.all %}
+      <tr style="background:#101218;">
+        <td colspan="5" style="padding:0;">
+          <details style="padding:0.5rem 1rem;">
+            <summary style="cursor:pointer; color:#666; font-size:0.8rem;">{{ device.logs.count }} log entries</summary>
+            <div style="margin-top:0.5rem; font-family:monospace; font-size:0.75rem; max-height:200px; overflow-y:auto;">
+              {% for log in device.logs.all %}
+              <div style="padding:0.15rem 0; color:
+                {% if log.level == 'ERROR' %}#ff6b6b
+                {% elif log.level == 'WARN' %}#ffb84d
+                {% elif log.level == 'DEBUG' %}#666
+                {% else %}#aaa{% endif %}">
+                {{ log.timestamp|date:"H:i:s" }} [{{ log.level }}] {{ log.message }}
+              </div>
+              {% endfor %}
+            </div>
+          </details>
+        </td>
+      </tr>
+      {% endif %}
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p style="color:#666; text-align:center; padding:1.5rem;">No device data for this phase yet.</p>
+  {% endif %}
+</div>
+
+<!-- Phase navigation -->
+<div style="display:flex; gap:1rem; margin-top:1rem;">
+  {% if phase.phase_number > 0 %}
+  <a href="{% url 'deploy:phase_detail' deployment.id phase.phase_number|add:'-1' %}"
+     style="font-size:0.85rem;">← Previous phase</a>
+  {% endif %}
+  <a href="{% url 'deploy:deployment_detail' deployment.id %}"
+     style="font-size:0.85rem; margin: 0 auto;">↑ Back to pipeline</a>
+  {% if phase.phase_number < 10 %}
+  <a href="{% url 'deploy:phase_detail' deployment.id phase.phase_number|add:'1' %}"
+     style="font-size:0.85rem;">Next phase →</a>
+  {% endif %}
+</div>
+{% endblock %}

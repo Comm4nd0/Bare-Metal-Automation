@@ -1,0 +1,79 @@
+{% extends "base.html" %}
+{% block title %}{{ site.site_name }} — Fleet — BMA{% endblock %}
+{% block nav_fleet %}active{% endblock %}
+
+{% block content %}
+<div style="margin-bottom:1rem; font-size:0.8rem; color:#666;">
+  <a href="{% url 'fleet:index' %}">Fleet</a> › {{ site.site_name }}
+</div>
+
+<h1 style="font-size:1.4rem; font-weight:700; margin-bottom:0.5rem;">{{ site.site_name }}</h1>
+<p style="color:#666; font-size:0.85rem; margin-bottom:1.5rem;">
+  <code>{{ site.site_slug }}</code>
+  {% if site.location %}&nbsp;·&nbsp; {{ site.location }}{% endif %}
+  {% if site.contact %}&nbsp;·&nbsp; <a href="mailto:{{ site.contact }}">{{ site.contact }}</a>{% endif %}
+</p>
+
+{% if site.last_deployment %}
+<div class="card" style="margin-bottom:1rem;">
+  <div class="card-title">Latest Deployment</div>
+  <p>
+    <a href="{% url 'deploy:deployment_detail' site.last_deployment.id %}">
+      {{ site.last_deployment.template_name }} v{{ site.last_deployment.template_version }}
+    </a>
+    &nbsp;·&nbsp;
+    {% if site.last_deployment.status == 'completed' %}
+      <span class="badge badge-green">Completed</span>
+    {% elif site.last_deployment.status == 'running' %}
+      <span class="badge badge-blue">Running</span>
+    {% elif site.last_deployment.status == 'failed' %}
+      <span class="badge badge-red">Failed</span>
+    {% else %}
+      <span class="badge badge-grey">{{ site.last_deployment.status }}</span>
+    {% endif %}
+  </p>
+</div>
+{% endif %}
+
+<div class="card">
+  <div class="card-title">Compliance History</div>
+  {% if compliance_records %}
+  <table>
+    <thead>
+      <tr>
+        <th>Scan Date</th>
+        <th>Template</th>
+        <th>Deployed Version</th>
+        <th>Current Version</th>
+        <th>Status</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for rec in compliance_records %}
+      <tr>
+        <td style="color:#888; font-size:0.8rem;">
+          <a href="{% url 'fleet:scan_detail' rec.scan.id %}">{{ rec.scan.scanned_at|date:"Y-m-d H:i" }}</a>
+        </td>
+        <td>{{ rec.template_name }}</td>
+        <td><code>{{ rec.deployed_version|default:"—" }}</code></td>
+        <td><code>{{ rec.current_version|default:"—" }}</code></td>
+        <td>
+          {% if rec.status == 'compliant' %}
+            <span class="badge badge-green">Compliant</span>
+          {% elif rec.status == 'outdated' %}
+            <span class="badge badge-amber">Outdated</span>
+          {% elif rec.status == 'never_deployed' %}
+            <span class="badge badge-grey">Never Deployed</span>
+          {% else %}
+            <span class="badge badge-grey">Unknown</span>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p style="color:#666; text-align:center; padding:1.5rem;">No compliance records yet.</p>
+  {% endif %}
+</div>
+{% endblock %}

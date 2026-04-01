@@ -1,0 +1,109 @@
+{% extends "base.html" %}
+{% block title %}Fleet Compliance — BMA{% endblock %}
+{% block nav_fleet %}active{% endblock %}
+
+{% block content %}
+<div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:1.5rem; flex-wrap:wrap; gap:1rem;">
+  <h1 style="font-size:1.4rem; font-weight:700;">Fleet Compliance</h1>
+  {% if latest_scan %}
+  <div style="text-align:right; font-size:0.8rem; color:#888;">
+    Last scan: {{ latest_scan.scanned_at|date:"Y-m-d H:i" }}
+    &nbsp;·&nbsp;
+    <span class="badge {% if latest_scan.compliance_pct >= 90 %}badge-green{% elif latest_scan.compliance_pct >= 60 %}badge-amber{% else %}badge-red{% endif %}">
+      {{ latest_scan.compliance_pct }}% compliant
+    </span>
+  </div>
+  {% endif %}
+</div>
+
+<!-- Summary cards -->
+{% if latest_scan %}
+<div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(160px,1fr)); gap:1rem; margin-bottom:1.5rem;">
+  <div class="card" style="text-align:center;">
+    <div style="font-size:2rem; font-weight:700; color:#4da6ff;">{{ latest_scan.site_count }}</div>
+    <div style="color:#888; font-size:0.8rem; margin-top:0.25rem;">Sites</div>
+  </div>
+  <div class="card" style="text-align:center;">
+    <div style="font-size:2rem; font-weight:700; color:#4caf82;">{{ latest_scan.compliant_count }}</div>
+    <div style="color:#888; font-size:0.8rem; margin-top:0.25rem;">Compliant</div>
+  </div>
+  <div class="card" style="text-align:center;">
+    <div style="font-size:2rem; font-weight:700; color:#ffb84d;">{{ latest_scan.outdated_count }}</div>
+    <div style="color:#888; font-size:0.8rem; margin-top:0.25rem;">Outdated</div>
+  </div>
+  <div class="card" style="text-align:center;">
+    <div style="font-size:2rem; font-weight:700; color:#666;">{{ latest_scan.unknown_count }}</div>
+    <div style="color:#888; font-size:0.8rem; margin-top:0.25rem;">Unknown</div>
+  </div>
+</div>
+{% endif %}
+
+<!-- Sites grouped by template -->
+{% if template_groups %}
+  {% for template_name, group_sites in template_groups.items %}
+  <div class="card" style="margin-bottom:1rem;">
+    <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:0.75rem;">
+      <div class="card-title" style="margin:0;">{{ template_name }}</div>
+      <span style="font-size:0.75rem; color:#666;">{{ group_sites|length }} site(s)</span>
+    </div>
+
+    <!-- Compliance bar for this template -->
+    {% with total=group_sites|length %}
+    <div style="margin-bottom:1rem;">
+      <div class="progress-bar-wrap">
+        <div class="progress-bar-fill" style="background:#4caf82; width:50%;"></div>
+      </div>
+      <div style="display:flex; justify-content:space-between; font-size:0.7rem; color:#666; margin-top:0.25rem;">
+        <span>Compliant</span>
+        <span>{{ total }} site(s)</span>
+      </div>
+    </div>
+    {% endwith %}
+
+    <table>
+      <thead>
+        <tr>
+          <th>Site</th>
+          <th>Slug</th>
+          <th>Last Deployed Version</th>
+          <th>Deployed At</th>
+          <th>Compliance</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for site in group_sites %}
+        <tr>
+          <td><a href="{% url 'fleet:site_detail' site.site_slug %}">{{ site.site_name }}</a></td>
+          <td><code style="font-size:0.8rem; color:#888;">{{ site.site_slug }}</code></td>
+          <td>
+            {% if site.last_deployment %}
+              <code>{{ site.last_deployment.template_version }}</code>
+            {% else %}
+              <span style="color:#666;">—</span>
+            {% endif %}
+          </td>
+          <td style="color:#888; font-size:0.8rem;">
+            {% if site.last_deployment and site.last_deployment.completed_at %}
+              {{ site.last_deployment.completed_at|date:"Y-m-d" }}
+            {% else %}—{% endif %}
+          </td>
+          <td>
+            {% if site.last_deployment %}
+              <span class="badge badge-green">Deployed</span>
+            {% else %}
+              <span class="badge badge-grey">Never deployed</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endfor %}
+{% else %}
+<div class="card" style="text-align:center; padding:3rem;">
+  <p style="color:#666; margin-bottom:0.5rem;">No sites registered in the fleet.</p>
+  <p style="font-size:0.8rem; color:#444;">Sites are created automatically when bundles are ingested.</p>
+</div>
+{% endif %}
+{% endblock %}

@@ -23,6 +23,11 @@ dependencies = [
     "ansible-runner>=2.3",
     "requests>=2.31",
     "django>=5.0",
+    "channels>=4.0",
+    "channels-redis>=4.2",
+    "daphne>=4.1",
+    "djangorestframework>=3.15",
+    "django-filter>=24.1",
     "rich>=13.7",
     "pydantic>=2.5",
     "pyserial>=3.5",
@@ -36,6 +41,7 @@ dev = [
     "pytest>=7.4",
     "pytest-cov>=4.1",
     "pytest-asyncio>=0.23",
+    "pytest-django>=4.8",
     "ruff>=0.3",
     "mypy>=1.8",
     "pre-commit>=3.6",
@@ -66,3 +72,4 @@ strict = true
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-v --cov=src --cov-report=term-missing"
+DJANGO_SETTINGS_MODULE = "config.settings"

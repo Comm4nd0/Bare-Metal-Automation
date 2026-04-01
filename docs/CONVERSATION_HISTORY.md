@@ -30,6 +30,84 @@ Bare Metal Automation is a zero-touch provisioning tool for bare-metal infrastru
 
 ## Session Log
 
+### Session 6 — Sprint 3: Django Dashboard & Bundle Ingestion (PR TBD)
+
+**Date**: 2026-04-01
+**Branch**: `luma/affectionate-dijkstra`
+**Base**: `luma/objective-bhabha` (Sprint 2 — config & media generation)
+
+**What was done**:
+- Built a complete production-quality Django dashboard project at `dashboard/` (root level), separate from the Python library in `src/`
+- Added Sprint 3 dependencies to `pyproject.toml`: `channels>=4.0`, `channels-redis>=4.2`, `daphne>=4.1`, `djangorestframework>=3.15`, `django-filter>=24.1`, `pytest-django>=4.8`
+
+**Django project structure** (`dashboard/`):
+- `config/` — Django project settings, URLs, ASGI (Channels), WSGI; SQLite default, PostgreSQL via `BMA_DB_ENGINE=postgresql` env var; in-memory channel layer default, Redis via `BMA_CHANNEL_BACKEND=redis`
+- `deploy/` — Deploy tracking app
+- `fleet/` — Fleet compliance app
+- `static/js/`, `static/css/` — Vanilla JS + CSS static assets
+- `templates/` — Base template
+
+**Deploy app models** (`dashboard/deploy/models.py`):
+- `Deployment` — site_name/slug, template_name/version, bundle_path, manifest_hash, ingested_at/started_at/completed_at, status (ingested/running/completed/failed/aborted), operator FK; `start()`, `complete()`, `fail()` helpers; `progress_pct`, `current_phase`, `duration_seconds` properties
+- `DeploymentPhase` — 11 phases (0-10), status with traffic_light property (grey/blue/green/amber/red), `start()`, `complete(warning_count)`, `fail(error_message)` helpers, duration tracking
+- `DeploymentDevice` — per-device state (11 statuses), artefact paths, timestamps, `status_colour` property
+- `DeviceLog` — timestamped per-device logs with level (DEBUG/INFO/WARN/ERROR)
+- `FactoryReset`, `ResetPhase`, `DeviceResetCertificate` — factory reset workflow models
+
+**Fleet app models** (`dashboard/fleet/models.py`):
+- `SiteRecord` — registered sites with last_deployment FK
+- `TemplateRecord` — versioned templates with previous_versions JSON
+- `FleetScan` — compliance scan results with `compliance_pct` property
+- `SiteComplianceRecord` — per-site result within a scan (compliant/outdated/unknown/never_deployed)
+
+**Bundle ingestion** (`deploy/management/commands/ingest_bundle.py`):
+- `python manage.py ingest_bundle --path /media/usb/bundle/`
+- Validates `checksums.sha256` (SHA-256 of every file), validates `manifest.yaml` schema (required keys, valid roles/platforms), validates `inventory.yaml` if present, warns on missing artefact files
+- Creates Deployment + 11 DeploymentPhase records (all pending) + DeploymentDevice per device entry
+- Flags: `--validate-only` (no DB writes), `--force` (re-ingest), `--operator <username>`
+
+**Phase management command stubs** (Sprint 4 implementation):
+- `discover`, `validate_cabling`, `transfer_firmware`, `configure_network`, `pivot`, `provision_servers`, `deploy_vcenter`, `configure_vnet`, `deploy_vms`, `validate_deployment`
+- `deploy` — master command with `--phases` (comma-separated) and `--dry-run`
+- `factory_reset` — requires `--confirm` flag, `--sanitisation-method` option
+
+**REST API** (`deploy/api/`):
+- DRF viewsets: `DeploymentViewSet` (list/detail + `/phases/`, `/devices/`, `/factory_resets/` actions), `DeploymentPhaseViewSet`, `DeploymentDeviceViewSet` (with `/logs/` action), `FactoryResetViewSet`
+- DefaultRouter at `/api/`
+- Serializers include computed fields: `traffic_light`, `status_colour`, `progress_pct`, `duration_seconds`
+
+**WebSocket consumers** (`deploy/consumers.py`):
+- `DeploymentConsumer` — subscribes to `deployment_<id>` channel group
+- Events: `phase.started`, `phase.completed`, `phase.failed`, `device.status_changed`, `device.log`, `deployment.completed`, `deployment.failed`
+- Helper async push functions for each event type (used by Sprint 4 phase commands)
+- WebSocket URL: `ws/deployments/<id>/`
+
+**Dashboard views and templates**:
+- `deploy/index.html` — deployment list table with status badges, progress bars
+- `deploy/deployment_detail.html` — 11-phase traffic light pipeline (animated pulse on running phase) + device grid table; WebSocket-connected via `initPhaseTracker()` and `initDeviceGrid()`
+- `deploy/phase_detail.html` — per-device status within a phase, expandable device logs, phase navigation
+- `fleet/index.html` — sites grouped by template, compliance bars, summary cards
+- `fleet/site_detail.html` — compliance history for a single site
+- `fleet/scan_detail.html` — all site results for a fleet scan
+- Dark theme base template (`templates/base.html`) with nav, card, table, badge, progress bar styles
+
+**Static assets**:
+- `static/css/traffic-lights.css` — `.tl-<colour>` classes, `.status-dot-*`, device row highlight classes
+- `static/js/phase-tracker.js` — WebSocket client with exponential back-off reconnection, updates phase pipeline traffic lights in real time, shows toast banner on completion/failure
+- `static/js/device-grid.js` — WebSocket client for device status row updates, per-device log buffer, flash animation on state changes
+
+**Tests** (`tests/dashboard/`):
+- `test_models.py` — 25 tests covering Deployment lifecycle (start/complete/fail), phase traffic lights, device status colours, FactoryReset + certificate, fleet models, compliance percentage
+- `test_ingest_bundle.py` — 13 tests: valid ingestion, validate-only, duplicate guard, --force, checksum mismatch, missing files, invalid role/platform, schema errors, manifest hash storage
+- `test_api.py` — 13 tests: deployment list/detail, phases/devices/factory_resets actions, 404 handling, phase traffic_light in API, device log action
+
+**Key decisions**:
+- Dashboard lives at root-level `dashboard/` as a standalone Django project, not inside the `src/` package — cleaner separation between the Python library and the web app
+- SQLite by default for laptop deployment; PostgreSQL via `BMA_DB_ENGINE=postgresql` env var
+- In-memory channel layer by default; Redis via `BMA_CHANNEL_BACKEND=redis`
+- `unique_together` constraints on (deployment, phase_number), (deployment, serial_number), (reset, phase_number) enforced at DB level
+- Phase stubs intentionally print a clear "Sprint 4 not implemented" warning rather than silently no-oping
+
 ### Session 1 — Initial Scaffold
 
 **Date**: 2026-03-29
@@ -433,6 +511,7 @@ Bare Metal Automation is a zero-touch provisioning tool for bare-metal infrastru
 - **Fleet scan** — `orchestrator/fleet_scan.py` (version drift report, JSON/table output)
 - **Pipeline orchestrator** — `orchestrator/orchestrate.py` (5-stage pipeline, inventory export, bundle)
 - **Node validators** — `orchestrator/validators.py` (device/VLAN/prefix/cable/cluster checks)
+- **Django Dashboard (Sprint 3)** — Full standalone Django project at `dashboard/`; deploy app (Deployment/Phase/Device/Log/FactoryReset models), fleet app (SiteRecord/TemplateRecord/FleetScan models), `ingest_bundle` management command (checksum validation + DB creation), 12 phase command stubs, DRF REST API, Django Channels WebSocket consumers, traffic-light phase pipeline UI, device grid, fleet compliance views, vanilla JS real-time updates
 
 ### What still needs to be built (from ROADMAP)
 
