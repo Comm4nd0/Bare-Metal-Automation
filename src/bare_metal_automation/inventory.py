@@ -5,9 +5,19 @@ from __future__ import annotations
 from pathlib import Path
 
 import yaml
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, field_validator, model_validator  # noqa: I001
 
 from bare_metal_automation.models import DeploymentInventory
+
+# Legacy field names that should be migrated into vendor_config
+_HPE_FIELDS = frozenset({
+    "ilo_firmware", "os_iso", "kickstart_iso", "spp_iso",
+    "bios_settings", "raid_config", "ilo_config",
+})
+_MEINBERG_FIELDS = frozenset({
+    "ntp_references", "ntp_config", "system_config", "network_config",
+})
+_LEGACY_VENDOR_FIELDS = _HPE_FIELDS | _MEINBERG_FIELDS
 
 
 class DeviceSpec(BaseModel):
@@ -17,11 +27,15 @@ class DeviceSpec(BaseModel):
     hostname: str
     template: str
     platform: str
-    # Network device firmware fields
+    category: str | None = None
+    # Generic firmware fields (all device types)
     firmware_image: str | None = None
     firmware_version: str | None = None
     firmware_md5: str | None = None
-    # HPE server fields
+    # Vendor-specific config — drivers receive this dict as-is
+    vendor_config: dict | None = None
+
+    # Legacy fields kept for backward compatibility (migrated to vendor_config)
     ilo_firmware: str | None = None
     os_iso: str | None = None
     kickstart_iso: str | None = None
@@ -29,11 +43,27 @@ class DeviceSpec(BaseModel):
     bios_settings: dict | None = None
     raid_config: dict | None = None
     ilo_config: dict | None = None
-    # Meinberg NTP fields
     ntp_references: dict | None = None
     ntp_config: dict | None = None
     system_config: dict | None = None
     network_config: dict | None = None
+
+    @model_validator(mode="after")
+    def _migrate_legacy_fields(self) -> DeviceSpec:
+        """Move legacy vendor-specific top-level fields into vendor_config."""
+        migrated: dict = {}
+        for field_name in _LEGACY_VENDOR_FIELDS:
+            value = getattr(self, field_name, None)
+            if value is not None:
+                migrated[field_name] = value
+        if migrated:
+            if self.vendor_config is None:
+                self.vendor_config = migrated
+            else:
+                # Existing vendor_config takes precedence
+                for k, v in migrated.items():
+                    self.vendor_config.setdefault(k, v)
+        return self
 
 
 class InventorySchema(BaseModel):

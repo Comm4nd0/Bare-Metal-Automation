@@ -346,7 +346,7 @@ class HPEServerProvisioner:
     ) -> bool:
         """Install HPE Service Pack for ProLiant via virtual media."""
         logger.info(f"{device.intended_hostname}: Installing HPE SPP ({spp_iso})")
-        device.state = DeviceState.SPP_INSTALLING
+        device.state = DeviceState.DRIVER_PACK_INSTALLING
 
         try:
             iso_uri = f"http://{self.http_server}/{self.iso_dir}/{spp_iso}"
@@ -371,7 +371,7 @@ class HPEServerProvisioner:
             # Unmount ISO
             self._unmount_virtual_media(client, device)
 
-            device.state = DeviceState.SPP_INSTALLED
+            device.state = DeviceState.DRIVER_PACK_INSTALLED
             logger.info(f"{device.intended_hostname}: HPE SPP installation complete")
             return True
 
@@ -437,7 +437,7 @@ class HPEServerProvisioner:
     ) -> bool:
         """Apply production iLO configuration (networking, users, alerts)."""
         logger.info(f"{device.intended_hostname}: Configuring iLO for production")
-        device.state = DeviceState.ILO_CONFIGURING
+        device.state = DeviceState.BMC_CONFIGURING
 
         try:
             # Configure iLO network settings
@@ -472,7 +472,7 @@ class HPEServerProvisioner:
                     data={"HostName": ilo_hostname},
                 )
 
-            device.state = DeviceState.ILO_CONFIGURED
+            device.state = DeviceState.BMC_CONFIGURED
             logger.info(f"{device.intended_hostname}: iLO configuration complete")
             return True
 

@@ -9,6 +9,8 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from bare_metal_automation.drivers import DriverRegistry
+
 logger = logging.getLogger(__name__)
 
 
@@ -31,7 +33,10 @@ ROLE_MAP: dict[str, str] = {
     "server": "compute-node",
 }
 
-# NetBox device_type slugs or manufacturer → BMA platform values
+# NetBox device_type slugs or manufacturer → BMA platform values.
+# Built-in mappings for known platforms.  New vendors can be added here
+# or, preferably, by configuring the slug to match the registered platform
+# string directly (the mapper falls through to identity match).
 PLATFORM_MAP: dict[str, str] = {
     "cisco_ios": "cisco_ios",
     "cisco_iosxe": "cisco_iosxe",
@@ -41,7 +46,7 @@ PLATFORM_MAP: dict[str, str] = {
     "hpe_dl360_gen10": "hpe_dl360_gen10",
     "hpe_dl380_gen10": "hpe_dl380_gen10",
     "meinberg_lantime": "meinberg_lantime",
-    # Common NetBox alternatives
+    # Common NetBox alternatives (hyphen to underscore)
     "cisco-ios": "cisco_ios",
     "cisco-iosxe": "cisco_iosxe",
     "cisco-asa": "cisco_asa",
@@ -50,6 +55,21 @@ PLATFORM_MAP: dict[str, str] = {
     "hpe-dl380-gen10": "hpe_dl380_gen10",
     "meinberg-lantime": "meinberg_lantime",
 }
+
+
+def resolve_platform(slug: str) -> str | None:
+    """Resolve a NetBox platform slug to a BMA platform string.
+
+    Checks the static PLATFORM_MAP first, then falls through to the
+    driver registry (if the slug is itself a registered platform prefix).
+    """
+    if slug in PLATFORM_MAP:
+        return PLATFORM_MAP[slug]
+    # Fall through: if the slug is a known platform in the driver registry,
+    # accept it as-is (supports new vendors without updating the map).
+    if DriverRegistry.device_category(slug) is not None:
+        return slug
+    return None
 
 
 # ── Device mapping ────────────────────────────────────────────────────────
@@ -94,7 +114,7 @@ def map_device_to_spec(
         if device.platform
         else ""
     )
-    platform = PLATFORM_MAP.get(platform_slug)
+    platform = resolve_platform(platform_slug)
     if not platform:
         # Try device_type slug as fallback
         type_slug = (
@@ -102,11 +122,12 @@ def map_device_to_spec(
             if device.device_type
             else ""
         )
-        platform = PLATFORM_MAP.get(type_slug)
+        platform = resolve_platform(type_slug)
     if not platform:
         raise ValueError(
             f"Device '{device.name}' has unmapped platform "
-            f"'{platform_slug}' — add it to PLATFORM_MAP",
+            f"'{platform_slug}' — add it to PLATFORM_MAP or "
+            f"register a driver for this platform",
         )
 
     # Extract management IP from ip_addresses

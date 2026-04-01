@@ -9,35 +9,17 @@ from __future__ import annotations
 import logging
 import re
 
+from bare_metal_automation.drivers.cisco.platforms import (
+    PID_PLATFORM_MAP as _PID_PLATFORM_MAP,  # noqa: F401
+)
+from bare_metal_automation.drivers.cisco.platforms import (
+    pid_to_platform,
+)
+
 logger = logging.getLogger(__name__)
 
-# Map PID prefixes → BMA platform strings
-# Ordered longest-match first to avoid ambiguity.
-_PID_PLATFORM_MAP: list[tuple[str, str]] = [
-    ("C9300X", "cisco_iosxe"),
-    ("C9300",  "cisco_iosxe"),
-    ("C9500",  "cisco_iosxe"),
-    ("C9200",  "cisco_iosxe"),
-    ("WS-C",   "cisco_ios"),     # Catalyst classic (3850, 3750, etc.)
-    ("C6800",  "cisco_ios"),
-    ("ISR",    "cisco_iosxe"),
-    ("ASR",    "cisco_iosxe"),
-    ("ASA",    "cisco_asa"),
-    ("FPR",    "cisco_ftd"),
-    ("FTD",    "cisco_ftd"),
-]
-
-
-def pid_to_platform(pid: str) -> str | None:
-    """Map a Cisco hardware PID to a BMA platform string, or None if unknown."""
-    if not pid:
-        return None
-    pid_upper = pid.upper()
-    for prefix, platform in _PID_PLATFORM_MAP:
-        if pid_upper.startswith(prefix):
-            return platform
-    logger.debug(f"Unknown PID '{pid}' — platform not mapped")
-    return None
+# Re-export for backward compatibility
+__all__ = ["pid_to_platform", "parse_inventory", "collect_serial"]
 
 
 def parse_inventory(output: str) -> tuple[str | None, str | None]:

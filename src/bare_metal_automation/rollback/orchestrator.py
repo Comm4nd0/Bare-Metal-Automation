@@ -19,6 +19,7 @@ from bare_metal_automation.common.parallel import (
     run_independent_parallel,
     run_parallel_by_depth,
 )
+from bare_metal_automation.drivers import DriverRegistry, load_builtin_drivers
 from bare_metal_automation.models import (
     DevicePlatform,
     DeviceRole,
@@ -26,6 +27,9 @@ from bare_metal_automation.models import (
     DiscoveredDevice,
     RollbackPhase,
 )
+
+# Ensure built-in drivers are registered
+load_builtin_drivers()
 
 logger = logging.getLogger(__name__)
 console = Console()
@@ -126,25 +130,37 @@ class RollbackOrchestrator:
 
     # ── Device classification helpers ──────────────────────────────────
 
-    def _cisco_devices(self) -> list[DiscoveredDevice]:
+    @staticmethod
+    def _resolve_platform(d: DiscoveredDevice) -> str:
+        """Return the best available platform string for a device."""
+        if d.platform:
+            return d.platform
+        if d.device_platform is not None:
+            return d.device_platform.value
+        return ""
+
+    def _network_devices(self) -> list[DiscoveredDevice]:
         return [
             d for d in self.devices.values()
-            if d.device_platform
-            and d.device_platform.value.startswith("cisco")
+            if DriverRegistry.is_network(self._resolve_platform(d))
         ]
 
-    def _hpe_devices(self) -> list[DiscoveredDevice]:
+    def _server_devices(self) -> list[DiscoveredDevice]:
         return [
             d for d in self.devices.values()
-            if d.device_platform
-            and d.device_platform.value.startswith("hpe_")
+            if DriverRegistry.is_server(self._resolve_platform(d))
         ]
 
-    def _ntp_devices(self) -> list[DiscoveredDevice]:
+    def _appliance_devices(self) -> list[DiscoveredDevice]:
         return [
             d for d in self.devices.values()
-            if d.device_platform == DevicePlatform.MEINBERG_LANTIME
+            if DriverRegistry.is_appliance(self._resolve_platform(d))
         ]
+
+    # Backward-compatible aliases
+    _cisco_devices = _network_devices
+    _hpe_devices = _server_devices
+    _ntp_devices = _appliance_devices
 
     # ── Load devices from deployment checkpoint ────────────────────────
 
@@ -362,55 +378,61 @@ class RollbackOrchestrator:
     # ── Phase implementations ──────────────────────────────────────────
 
     def _run_ntp_reset(self) -> None:
-        """Factory-reset all Meinberg NTP devices."""
-        from bare_metal_automation.rollback.meinberg import (
-            MeinbergResetter,
-        )
-
-        ntp_devices = self._ntp_devices()
-        if not ntp_devices:
-            console.print("  No NTP devices to reset")
+        """Factory-reset all appliance devices via their registered driver."""
+        appliance_devices = self._appliance_devices()
+        if not appliance_devices:
+            console.print("  No appliance devices to reset")
             return
 
         console.print(
-            f"  Resetting {len(ntp_devices)} NTP device(s)...",
+            f"  Resetting {len(appliance_devices)} appliance device(s)...",
         )
-        resetter = MeinbergResetter()
+
+        def _reset(d: DiscoveredDevice) -> bool:
+            platform = d.platform or ""
+            driver = DriverRegistry.get_appliance_driver(platform)
+            if driver is None:
+                return False
+            return driver.reset_device(d)
+
         results = run_independent_parallel(
-            ntp_devices,
-            lambda d: resetter.reset_device(d),
+            appliance_devices,
+            _reset,
         )
         self.results.update(results)
 
         ok = sum(1 for v in results.values() if v)
         console.print(
-            f"  NTP reset: {ok}/{len(ntp_devices)} successful",
+            f"  Appliance reset: {ok}/{len(appliance_devices)} successful",
         )
 
     def _run_server_reset(self) -> None:
-        """Factory-reset all HPE servers."""
-        from bare_metal_automation.rollback.server import (
-            HPEServerResetter,
-        )
-
-        hpe_devices = self._hpe_devices()
-        if not hpe_devices:
-            console.print("  No HPE servers to reset")
+        """Factory-reset all servers via their registered driver."""
+        server_devs = self._server_devices()
+        if not server_devs:
+            console.print("  No servers to reset")
             return
 
         console.print(
-            f"  Resetting {len(hpe_devices)} HPE server(s)...",
+            f"  Resetting {len(server_devs)} server(s)...",
         )
-        resetter = HPEServerResetter()
+
+        def _reset(d: DiscoveredDevice) -> bool:
+            platform = d.platform or ""
+            driver = DriverRegistry.get_server_driver(platform)
+            if driver is None:
+                return False
+            return driver.reset_server(d)
+
         results = run_independent_parallel(
-            hpe_devices,
-            lambda d: resetter.reset_server(d),
+            server_devs,
+            _reset,
         )
         self.results.update(results)
 
         ok = sum(1 for v in results.values() if v)
         console.print(
-            f"  Server reset: {ok}/{len(hpe_devices)} successful",
+            f"  Server reset: {ok}/{len(server_devs)} successful",
         )
 
     def _run_laptop_pivot(self) -> None:
@@ -432,41 +454,40 @@ class RollbackOrchestrator:
         console.print("  Laptop NIC reverted to bootstrap network")
 
     def _run_network_reset(self) -> None:
-        """Factory-reset all Cisco network devices (outside-in)."""
-        from bare_metal_automation.rollback.network import (
-            NetworkResetter,
-        )
-
-        cisco_devices = self._cisco_devices()
-        if not cisco_devices:
+        """Factory-reset all network devices (outside-in) via their driver."""
+        net_devices = self._network_devices()
+        if not net_devices:
             console.print("  No network devices to reset")
             return
 
         console.print(
-            f"  Resetting {len(cisco_devices)} network device(s) "
+            f"  Resetting {len(net_devices)} network device(s) "
             f"(outside-in)...",
         )
-        resetter = NetworkResetter(ssh_timeout=self.ssh_timeout)
+
+        def _reset(d: DiscoveredDevice) -> bool:
+            platform = d.platform or ""
+            driver = DriverRegistry.get_network_driver(
+                platform, ssh_timeout=self.ssh_timeout
+            )
+            if driver is None:
+                return False
+            return driver.reset_device(d)
+
         results = run_parallel_by_depth(
-            cisco_devices,
-            lambda d: resetter.reset_device(d),
+            net_devices,
+            _reset,
             stop_on_failure=False,
         )
         self.results.update(results)
 
         ok = sum(1 for v in results.values() if v)
         console.print(
-            f"  Network reset: {ok}/{len(cisco_devices)} successful",
+            f"  Network reset: {ok}/{len(net_devices)} successful",
         )
 
     def _run_final_check(self) -> None:
         """Verify devices are at factory state."""
-        from bare_metal_automation.rollback.network import (
-            NetworkResetter,
-        )
-
-        resetter = NetworkResetter(ssh_timeout=self.ssh_timeout)
-
         total = len(self.devices)
         verified = 0
 
@@ -474,26 +495,29 @@ class RollbackOrchestrator:
             hostname = device.intended_hostname or device.ip
 
             if device.state == DeviceState.POWERED_OFF:
-                console.print(f"  ✓ {hostname}: powered off")
+                console.print(f"  \u2713 {hostname}: powered off")
                 verified += 1
             elif device.state == DeviceState.FACTORY_RESET:
-                if device.device_platform and \
-                        device.device_platform.value.startswith("cisco"):
-                    if resetter.verify_factory_state(device):
+                platform = device.platform or ""
+                if DriverRegistry.is_network(platform):
+                    driver = DriverRegistry.get_network_driver(
+                        platform, ssh_timeout=self.ssh_timeout
+                    )
+                    if driver and driver.verify_factory_state(device):
                         console.print(
-                            f"  ✓ {hostname}: factory state verified",
+                            f"  \u2713 {hostname}: factory state verified",
                         )
                         verified += 1
                     else:
                         console.print(
-                            f"  ✗ {hostname}: verification failed",
+                            f"  \u2717 {hostname}: verification failed",
                         )
                 else:
-                    console.print(f"  ✓ {hostname}: reset complete")
+                    console.print(f"  \u2713 {hostname}: reset complete")
                     verified += 1
             elif device.state == DeviceState.FAILED:
                 console.print(
-                    f"  ✗ {hostname}: reset FAILED — may need manual "
+                    f"  \u2717 {hostname}: reset FAILED \u2014 may need manual "
                     f"intervention",
                 )
             else:

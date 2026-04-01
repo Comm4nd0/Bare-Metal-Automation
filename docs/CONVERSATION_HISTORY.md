@@ -657,6 +657,60 @@ Implemented the full BMA Engine Sprint 4, filling in module stubs and adding new
 - `firmware_catalogue.yaml` MD5 hashes are blank — must be populated before deployment (`md5sum <file>`)
 - Cable duplicate-check in `site_generate.py` uses `termination_a_id/b_id` filter — NetBox API response format for `a_terminations`/`b_terminations` changed in v3.7; may need adjustment for specific NetBox versions
 
+### Session 15 — Vendor-Agnostic Refactoring
+
+**Date**: 2026-04-01
+**Branch**: `claude/vendor-agnostic-refactor-bFDxt`
+
+**What was done**:
+- Introduced a driver/plugin architecture to make BMA vendor-agnostic
+- Created abstract base classes: `NetworkDriver`, `ServerDriver`, `ApplianceDriver`, `DiscoveryDriver` in `drivers/base.py`
+- Created `DriverRegistry` in `drivers/registry.py` — maps platform prefixes to driver classes, supports longest-prefix matching
+- Wrapped existing Cisco, HPE, and Meinberg vendor code as built-in drivers (`drivers/cisco/`, `drivers/hpe/`, `drivers/meinberg/`)
+- Refactored `orchestrator.py` to use `DriverRegistry.device_category()` instead of string matching (`platform.startswith("cisco")`)
+- Refactored `rollback/orchestrator.py` to use driver-based device classification and reset operations
+- Generalized vendor-specific state names: `ILO_CONFIGURING` → `BMC_CONFIGURING`, `SPP_INSTALLING` → `DRIVER_PACK_INSTALLING`
+- Added `DeviceCategory` enum (network/server/appliance) and `DevicePlatform.from_string()` classmethod
+- Added `DeviceState.from_string()` with legacy name mapping for backward compatibility
+- Added `vendor_config` field to `DeviceSpec` with auto-migration of legacy vendor-specific fields
+- Moved Cisco platform constants (`PID_PLATFORM_MAP`, `NETMIKO_DEVICE_TYPE`) to `drivers/cisco/platforms.py`
+- Updated `netbox/mapper.py` with `resolve_platform()` that falls through to driver registry
+- Updated `dashboard/models.py` — platform field is now a free-text CharField, state choices updated
+- Grouped vendor credentials in `settings.py` under `VENDOR_DEFAULTS` dict (backward-compatible)
+- Added 18 new tests in `tests/unit/test_driver_registry.py`
+
+**Key decisions**:
+- Drivers are thin wrappers over existing vendor code (no rewrite of vendor logic)
+- `DevicePlatform` enum kept for backward compatibility but orchestrator no longer requires it
+- Registry uses prefix-based matching (e.g. `"cisco_"` matches `"cisco_ios"`, `"cisco_iosxe"`)
+- New vendors only need to implement a driver ABC and register it — no core code changes needed
+
+**Files created**:
+- `src/bare_metal_automation/drivers/__init__.py`
+- `src/bare_metal_automation/drivers/base.py`
+- `src/bare_metal_automation/drivers/registry.py`
+- `src/bare_metal_automation/drivers/cisco/__init__.py`
+- `src/bare_metal_automation/drivers/cisco/network.py`
+- `src/bare_metal_automation/drivers/cisco/discovery.py`
+- `src/bare_metal_automation/drivers/cisco/platforms.py`
+- `src/bare_metal_automation/drivers/hpe/__init__.py`
+- `src/bare_metal_automation/drivers/hpe/server.py`
+- `src/bare_metal_automation/drivers/hpe/platforms.py`
+- `src/bare_metal_automation/drivers/meinberg/__init__.py`
+- `src/bare_metal_automation/drivers/meinberg/appliance.py`
+- `tests/unit/test_driver_registry.py`
+
+**Files modified**:
+- `src/bare_metal_automation/models.py`
+- `src/bare_metal_automation/inventory.py`
+- `src/bare_metal_automation/orchestrator.py`
+- `src/bare_metal_automation/rollback/orchestrator.py`
+- `src/bare_metal_automation/settings.py`
+- `src/bare_metal_automation/discovery/serial.py`
+- `src/bare_metal_automation/netbox/mapper.py`
+- `src/bare_metal_automation/dashboard/models.py`
+- `src/bare_metal_automation/provisioner/server.py`
+
 ---
 
 ## Architecture Notes for Future Sessions
@@ -666,9 +720,22 @@ Implemented the full BMA Engine Sprint 4, filling in module stubs and adding new
 src/bare_metal_automation/
 ├── __init__.py              # Version string
 ├── cli.py                   # Click CLI (discover, validate, configure, provision, serve)
-├── models.py                # Dataclass models + enums
-├── inventory.py             # YAML inventory loader + validator
-├── orchestrator.py          # Phase-based state machine with parallel execution
+├── models.py                # Dataclass models + enums (DeviceCategory, DevicePlatform, etc.)
+├── inventory.py             # YAML inventory loader + validator (vendor_config migration)
+├── orchestrator.py          # Phase-based state machine with driver-based dispatch
+├── drivers/                 # Vendor driver framework
+│   ├── __init__.py          # load_builtin_drivers() + exports
+│   ├── base.py              # ABCs: NetworkDriver, ServerDriver, ApplianceDriver, DiscoveryDriver
+│   ├── registry.py          # DriverRegistry — prefix-based platform → driver mapping
+│   ├── cisco/               # Cisco network driver (IOS/IOS-XE/ASA/FTD)
+│   │   ├── network.py       # CiscoNetworkDriver wrapping NetworkConfigurator + FirmwareConfigurator
+│   │   ├── discovery.py     # CiscoCDPDiscovery wrapping CDPCollector
+│   │   └── platforms.py     # PID maps, Netmiko types, flash paths, boot commands
+│   ├── hpe/                 # HPE server driver (iLO 5 / Redfish)
+│   │   ├── server.py        # HPEServerDriver wrapping HPEServerProvisioner + HPEServerResetter
+│   │   └── platforms.py     # HPE platform constants
+│   └── meinberg/            # Meinberg appliance driver (LANTIME NTP)
+│       └── appliance.py     # MeinbergApplianceDriver wrapping MeinbergProvisioner + MeinbergResetter
 ├── common/
 │   ├── parallel.py          # ThreadPoolExecutor grouped by BFS depth
 │   └── services.py          # Laptop service status checks (systemctl)
@@ -714,8 +781,8 @@ src/bare_metal_automation/
 9. Post-Install — OS hardening, packages, domain join
 10. Final Validation — end-to-end tests, health checks, report
 
-### Supported hardware
-- Cisco IOS/IOS-XE switches and routers (SSH + CDP + Netmiko)
-- Cisco ASA / Firepower firewalls (SSH + Netmiko)
-- HPE DL325/DL360/DL380 Gen10 servers (iLO 5 Redfish API)
-- Meinberg LANTIME NTP appliances (REST API)
+### Supported hardware (built-in drivers)
+- **Network** (Cisco): IOS/IOS-XE switches and routers, ASA / Firepower firewalls (SSH + CDP + Netmiko)
+- **Server** (HPE): DL325/DL360/DL380 Gen10 servers (iLO 5 Redfish API)
+- **Appliance** (Meinberg): LANTIME NTP appliances (REST API)
+- New vendors can be added by implementing a driver ABC and registering with `DriverRegistry` — no core code changes needed
