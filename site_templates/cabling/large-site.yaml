@@ -1,0 +1,309 @@
+---
+# Bare Metal Automation — Large Site Cabling Rules
+# 48 cables | matches large-site template v1.0
+#
+# HA topology notes:
+#   - sw-core-01 and sw-core-02 form a VSS/StackWise Virtual pair
+#   - fw-perim-01 and fw-perim-02 form an FTD HA pair
+#   - Each dist switch has a single uplink to sw-core-01 (primary)
+#   - Access switch is dual-homed to both cores
+
+cables:
+
+  # ── Core-to-FW mesh (4 cables) ───────────────────────────────────────────
+  - description: "Core-01 to FW-01 — primary path"
+    a: {device: sw-core-01, interface: "Te1/0/48"}
+    b: {device: fw-perim-01, interface: "Gi0/0"}
+    type: cat6a
+    color: yellow
+
+  - description: "Core-01 to FW-02 — cross-connect"
+    a: {device: sw-core-01, interface: "Te1/0/47"}
+    b: {device: fw-perim-02, interface: "Gi0/0"}
+    type: cat6a
+    color: yellow
+
+  - description: "Core-02 to FW-01 — cross-connect"
+    a: {device: sw-core-02, interface: "Te1/0/48"}
+    b: {device: fw-perim-01, interface: "Gi0/1"}
+    type: cat6a
+    color: yellow
+
+  - description: "Core-02 to FW-02 — primary path"
+    a: {device: sw-core-02, interface: "Te1/0/47"}
+    b: {device: fw-perim-02, interface: "Gi0/1"}
+    type: cat6a
+    color: yellow
+
+  # ── HA heartbeat links (2 cables) ────────────────────────────────────────
+  - description: "Core HA heartbeat (VSS/StackWise Virtual)"
+    a: {device: sw-core-01, interface: "Te1/0/46"}
+    b: {device: sw-core-02, interface: "Te1/0/46"}
+    type: dac-active
+    color: gray
+
+  - description: "FW HA heartbeat (VLAN 999)"
+    a: {device: fw-perim-01, interface: "Gi0/2"}
+    b: {device: fw-perim-02, interface: "Gi0/2"}
+    type: cat6a
+    color: gray
+
+  # ── Core-to-Access (2 cables, dual-homed) ────────────────────────────────
+  - description: "Core-01 to Access — uplink"
+    a: {device: sw-core-01,   interface: "Te1/0/45"}
+    b: {device: sw-access-01, interface: "Gi1/0/47"}
+    type: cat6a
+    color: blue
+
+  - description: "Core-02 to Access — uplink (redundant)"
+    a: {device: sw-core-02,   interface: "Te1/0/45"}
+    b: {device: sw-access-01, interface: "Gi1/0/48"}
+    type: cat6a
+    color: blue
+
+  # ── Core-01 to Distribution switches (10 cables) ─────────────────────────
+  - description: "Core-01 to Dist-01"
+    a: {device: sw-core-01, interface: "Te1/0/1"}
+    b: {device: sw-dist-01, interface: "Te1/1/1"}
+    type: cat6a
+    color: blue
+
+  - description: "Core-01 to Dist-02"
+    a: {device: sw-core-01, interface: "Te1/0/2"}
+    b: {device: sw-dist-02, interface: "Te1/1/1"}
+    type: cat6a
+    color: blue
+
+  - description: "Core-01 to Dist-03"
+    a: {device: sw-core-01, interface: "Te1/0/3"}
+    b: {device: sw-dist-03, interface: "Te1/1/1"}
+    type: cat6a
+    color: blue
+
+  - description: "Core-01 to Dist-04"
+    a: {device: sw-core-01, interface: "Te1/0/4"}
+    b: {device: sw-dist-04, interface: "Te1/1/1"}
+    type: cat6a
+    color: blue
+
+  - description: "Core-01 to Dist-05"
+    a: {device: sw-core-01, interface: "Te1/0/5"}
+    b: {device: sw-dist-05, interface: "Te1/1/1"}
+    type: cat6a
+    color: blue
+
+  - description: "Core-01 to Dist-06"
+    a: {device: sw-core-01, interface: "Te1/0/6"}
+    b: {device: sw-dist-06, interface: "Te1/1/1"}
+    type: cat6a
+    color: blue
+
+  - description: "Core-01 to Dist-07"
+    a: {device: sw-core-01, interface: "Te1/0/7"}
+    b: {device: sw-dist-07, interface: "Te1/1/1"}
+    type: cat6a
+    color: blue
+
+  - description: "Core-01 to Dist-08"
+    a: {device: sw-core-01, interface: "Te1/0/8"}
+    b: {device: sw-dist-08, interface: "Te1/1/1"}
+    type: cat6a
+    color: blue
+
+  - description: "Core-01 to Dist-09"
+    a: {device: sw-core-01, interface: "Te1/0/9"}
+    b: {device: sw-dist-09, interface: "Te1/1/1"}
+    type: cat6a
+    color: blue
+
+  - description: "Core-01 to Dist-10"
+    a: {device: sw-core-01, interface: "Te1/0/10"}
+    b: {device: sw-dist-10, interface: "Te1/1/1"}
+    type: cat6a
+    color: blue
+
+  # ── Access switch → ESXi iLO (8 cables) ──────────────────────────────────
+  - description: "Access to ESXi-01 iLO"
+    a: {device: sw-access-01, interface: "Gi1/0/1"}
+    b: {device: esxi-01,      interface: "iLO"}
+    type: cat6
+    color: red
+
+  - description: "Access to ESXi-02 iLO"
+    a: {device: sw-access-01, interface: "Gi1/0/2"}
+    b: {device: esxi-02,      interface: "iLO"}
+    type: cat6
+    color: red
+
+  - description: "Access to ESXi-03 iLO"
+    a: {device: sw-access-01, interface: "Gi1/0/3"}
+    b: {device: esxi-03,      interface: "iLO"}
+    type: cat6
+    color: red
+
+  - description: "Access to ESXi-04 iLO"
+    a: {device: sw-access-01, interface: "Gi1/0/4"}
+    b: {device: esxi-04,      interface: "iLO"}
+    type: cat6
+    color: red
+
+  - description: "Access to ESXi-05 iLO"
+    a: {device: sw-access-01, interface: "Gi1/0/5"}
+    b: {device: esxi-05,      interface: "iLO"}
+    type: cat6
+    color: red
+
+  - description: "Access to ESXi-06 iLO"
+    a: {device: sw-access-01, interface: "Gi1/0/6"}
+    b: {device: esxi-06,      interface: "iLO"}
+    type: cat6
+    color: red
+
+  - description: "Access to ESXi-07 iLO"
+    a: {device: sw-access-01, interface: "Gi1/0/7"}
+    b: {device: esxi-07,      interface: "iLO"}
+    type: cat6
+    color: red
+
+  - description: "Access to ESXi-08 iLO"
+    a: {device: sw-access-01, interface: "Gi1/0/8"}
+    b: {device: esxi-08,      interface: "iLO"}
+    type: cat6
+    color: red
+
+  # ── Access switch → Backup iLO (2 cables) ────────────────────────────────
+  - description: "Access to Backup-01 iLO"
+    a: {device: sw-access-01,  interface: "Gi1/0/9"}
+    b: {device: svr-backup-01, interface: "iLO"}
+    type: cat6
+    color: red
+
+  - description: "Access to Backup-02 iLO"
+    a: {device: sw-access-01,  interface: "Gi1/0/10"}
+    b: {device: svr-backup-02, interface: "iLO"}
+    type: cat6
+    color: red
+
+  # ── Access switch → ESXi NIC.Slot.1.1 (8 cables) ─────────────────────────
+  - description: "Access to ESXi-01 NIC.Slot.1.1"
+    a: {device: sw-access-01, interface: "Gi1/0/11"}
+    b: {device: esxi-01,      interface: "NIC.Slot.1.1"}
+    type: cat6
+    color: green
+
+  - description: "Access to ESXi-02 NIC.Slot.1.1"
+    a: {device: sw-access-01, interface: "Gi1/0/12"}
+    b: {device: esxi-02,      interface: "NIC.Slot.1.1"}
+    type: cat6
+    color: green
+
+  - description: "Access to ESXi-03 NIC.Slot.1.1"
+    a: {device: sw-access-01, interface: "Gi1/0/13"}
+    b: {device: esxi-03,      interface: "NIC.Slot.1.1"}
+    type: cat6
+    color: green
+
+  - description: "Access to ESXi-04 NIC.Slot.1.1"
+    a: {device: sw-access-01, interface: "Gi1/0/14"}
+    b: {device: esxi-04,      interface: "NIC.Slot.1.1"}
+    type: cat6
+    color: green
+
+  - description: "Access to ESXi-05 NIC.Slot.1.1"
+    a: {device: sw-access-01, interface: "Gi1/0/15"}
+    b: {device: esxi-05,      interface: "NIC.Slot.1.1"}
+    type: cat6
+    color: green
+
+  - description: "Access to ESXi-06 NIC.Slot.1.1"
+    a: {device: sw-access-01, interface: "Gi1/0/16"}
+    b: {device: esxi-06,      interface: "NIC.Slot.1.1"}
+    type: cat6
+    color: green
+
+  - description: "Access to ESXi-07 NIC.Slot.1.1"
+    a: {device: sw-access-01, interface: "Gi1/0/17"}
+    b: {device: esxi-07,      interface: "NIC.Slot.1.1"}
+    type: cat6
+    color: green
+
+  - description: "Access to ESXi-08 NIC.Slot.1.1"
+    a: {device: sw-access-01, interface: "Gi1/0/18"}
+    b: {device: esxi-08,      interface: "NIC.Slot.1.1"}
+    type: cat6
+    color: green
+
+  # ── Access switch → Backup NIC.Slot.1.1 (2 cables) ───────────────────────
+  - description: "Access to Backup-01 NIC.Slot.1.1"
+    a: {device: sw-access-01,  interface: "Gi1/0/19"}
+    b: {device: svr-backup-01, interface: "NIC.Slot.1.1"}
+    type: cat6
+    color: green
+
+  - description: "Access to Backup-02 NIC.Slot.1.1"
+    a: {device: sw-access-01,  interface: "Gi1/0/20"}
+    b: {device: svr-backup-02, interface: "NIC.Slot.1.1"}
+    type: cat6
+    color: green
+
+  # ── Access switch → ESXi NIC.Slot.2.1 (8 cables) ─────────────────────────
+  - description: "Access to ESXi-01 NIC.Slot.2.1"
+    a: {device: sw-access-01, interface: "Gi1/0/21"}
+    b: {device: esxi-01,      interface: "NIC.Slot.2.1"}
+    type: cat6
+    color: green
+
+  - description: "Access to ESXi-02 NIC.Slot.2.1"
+    a: {device: sw-access-01, interface: "Gi1/0/22"}
+    b: {device: esxi-02,      interface: "NIC.Slot.2.1"}
+    type: cat6
+    color: green
+
+  - description: "Access to ESXi-03 NIC.Slot.2.1"
+    a: {device: sw-access-01, interface: "Gi1/0/23"}
+    b: {device: esxi-03,      interface: "NIC.Slot.2.1"}
+    type: cat6
+    color: green
+
+  - description: "Access to ESXi-04 NIC.Slot.2.1"
+    a: {device: sw-access-01, interface: "Gi1/0/24"}
+    b: {device: esxi-04,      interface: "NIC.Slot.2.1"}
+    type: cat6
+    color: green
+
+  - description: "Access to ESXi-05 NIC.Slot.2.1"
+    a: {device: sw-access-01, interface: "Gi1/0/25"}
+    b: {device: esxi-05,      interface: "NIC.Slot.2.1"}
+    type: cat6
+    color: green
+
+  - description: "Access to ESXi-06 NIC.Slot.2.1"
+    a: {device: sw-access-01, interface: "Gi1/0/26"}
+    b: {device: esxi-06,      interface: "NIC.Slot.2.1"}
+    type: cat6
+    color: green
+
+  - description: "Access to ESXi-07 NIC.Slot.2.1"
+    a: {device: sw-access-01, interface: "Gi1/0/27"}
+    b: {device: esxi-07,      interface: "NIC.Slot.2.1"}
+    type: cat6
+    color: green
+
+  - description: "Access to ESXi-08 NIC.Slot.2.1"
+    a: {device: sw-access-01, interface: "Gi1/0/28"}
+    b: {device: esxi-08,      interface: "NIC.Slot.2.1"}
+    type: cat6
+    color: green
+
+  # ── Access switch → NTP appliances (2 cables) ────────────────────────────
+  - description: "Access to NTP-01 ETH0"
+    a: {device: sw-access-01, interface: "Gi1/0/31"}
+    b: {device: ntp-01,       interface: "ETH0"}
+    type: cat6
+    color: orange
+
+  - description: "Access to NTP-02 ETH0"
+    a: {device: sw-access-01, interface: "Gi1/0/32"}
+    b: {device: ntp-02,       interface: "ETH0"}
+    type: cat6
+    color: orange

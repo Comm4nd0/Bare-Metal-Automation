@@ -383,6 +383,17 @@ Bare Metal Automation is a zero-touch provisioning tool for bare-metal infrastru
 - **Rollback to Factory** — Full factory reset of all devices (network, servers, NTP) from dashboard or CLI, with checkpoint/resume, safety confirmation, and simulation support
 - **NetBox integration** — Single source of truth for node configs; "Prepare Build" dashboard button pulls from NetBox + git repo, generates inventory; optional (backward-compatible with manual YAML)
 
+### What exists (Sprint 1 — NetBox Site Lifecycle)
+
+- **Site templates** — `site_templates/small-site.yaml`, `medium-site.yaml`, `large-site.yaml`
+- **Cabling rules** — `site_templates/cabling/{small,medium,large}-site.yaml` (12/25/48 cables)
+- **Firmware catalogue** — `firmware_catalogue.yaml` (Cisco IOS-XE, FTD, HPE iLO/BIOS/SPP, Meinberg)
+- **NetBox site generation** — `orchestrator/site_generate.py` (idempotent, full object tree)
+- **NetBox site regeneration** — `orchestrator/site_regenerate.py` (report/fix/rebuild modes)
+- **Fleet scan** — `orchestrator/fleet_scan.py` (version drift report, JSON/table output)
+- **Pipeline orchestrator** — `orchestrator/orchestrate.py` (5-stage pipeline, inventory export, bundle)
+- **Node validators** — `orchestrator/validators.py` (device/VLAN/prefix/cable/cluster checks)
+
 ### What still needs to be built (from ROADMAP)
 
 - **Milestone 1 (Foundation/MVP)**: DHCP server wrapper, CDP collector, serial collector, device matcher, ~~mock device simulator~~, unit tests
@@ -392,11 +403,43 @@ Bare Metal Automation is a zero-touch provisioning tool for bare-metal infrastru
 - **Milestone 5 (Dashboard)**: WebSocket live updates, topology visualisation (D3.js/vis.js), ~~deploy button~~, log viewer, ~~simulation mode~~
 - **Milestone 6 (Hardening)**: Serial console fallback, retry logic, ~~state persistence~~, multi-NIC, LLDP
 
+### Session 12 — Sprint 1: NetBox Site Lifecycle Foundation
+
+**Date**: 2026-04-01
+**Branch**: `luma/tender-franklin`
+
+**What was done**:
+- Created `firmware_catalogue.yaml` — maps platform/version to file paths + MD5 hashes for cisco_iosxe, cisco_ftd, hpe_ilo, hpe_bios, hpe_spp, meinberg_ntp
+- Created `site_templates/small-site.yaml`, `medium-site.yaml`, `large-site.yaml` — declarative site definitions covering device counts, VLAN specs, mission tenant config, IP addressing, cluster config, and firmware references
+- Created `site_templates/cabling/small-site.yaml` (12 cables), `medium-site.yaml` (25 cables), `large-site.yaml` (48 cables) — explicit per-cable definitions with device/interface endpoints, cable type, and color
+- Created `orchestrator/` package with 5 Python modules:
+  - `validators.py` — `NodeValidator`: validates a NetBox site against its template (devices, VLANs, prefixes, cables, cluster); standalone CLI + importable
+  - `site_generate.py` — `SiteGenerator`: idempotent NetBox site creation from template (manufacturers, device types, roles, platforms, site, rack, VLANs, mission VLANs, prefixes, devices, interfaces, cables, vSphere cluster)
+  - `site_regenerate.py` — `SiteRegenerator`: 3-mode drift management (report/fix/rebuild) — compares devices, VLANs, prefixes, cables, cluster, custom fields vs template
+  - `fleet_scan.py` — `FleetScanner`: scans all NetBox sites with `template_name` custom field, compares stored version vs on-disk template version, table/JSON output
+  - `orchestrate.py` — `PipelineOrchestrator`: end-to-end 5-stage pipeline (connect → provision → validate → export → package); exports `inventory.yaml` + creates `bma-<site>-<ts>.tar.gz` bundle
+- Updated `pyproject.toml`: added `tabulate>=0.9`, `semver>=3.0` dependencies; added 4 new CLI entry points (`bma-site-generate`, `bma-site-regenerate`, `bma-fleet-scan`, `bma-orchestrate`); added `orchestrator` to hatchling build targets
+- Created `requirements.txt` for pip-based installs
+
+**Decisions made**:
+- Site templates use `default_site_octet` (100/200/300 for small/medium/large) overridable at generation time via `--octet`
+- VLAN/prefix addressing formula: users `10.{X}.{11+N}.0/24`, apps `10.{X}.{111+N*10}.0/24`, data `10.{X}.{112+N*10}.0/24` where N is 0-indexed mission number
+- Mission VLANs: users=`1100+N*100`, apps=`1110+N*100`, data=`1120+N*100`
+- Cabling YAML is explicit (no template expansion) for clarity and auditability
+- Large site has HA: 2 cores (VSS heartbeat Te1/0/46), 2 FWs (HA heartbeat Gi0/2 VLAN 999), dual-homed access switch
+- SiteGenerator.run() is fully idempotent — `_get_or_create` pattern throughout
+- `site_regenerate --mode fix` creates missing objects only (never deletes extras)
+- `site_regenerate --mode rebuild` requires `--confirm` flag (destructive)
+- Fleet scan exit code 1 if any site is outdated (useful for CI gates)
+- Pipeline exports inventory compatible with existing `bare_metal_automation/inventory.py` loader
+
 ### Known issues / open items
 
 - The `dashboard/` was changed from Flask to Django but the README architecture diagram still references "Flask + WebSocket" — may want to update this
 - No unit tests for the new provisioning modules yet
 - Meinberg API paths are based on the LANTIME REST API spec — may need adjustment for specific firmware versions
+- `firmware_catalogue.yaml` MD5 hashes are blank — must be populated before deployment (`md5sum <file>`)
+- Cable duplicate-check in `site_generate.py` uses `termination_a_id/b_id` filter — NetBox API response format for `a_terminations`/`b_terminations` changed in v3.7; may need adjustment for specific NetBox versions
 
 ---
 

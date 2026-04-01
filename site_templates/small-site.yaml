@@ -1,0 +1,183 @@
+---
+# Bare Metal Automation — Small Site Template
+# 8 physical nodes | 2 missions | 21 VMs | default IP range 10.100.x.x
+#
+# Override site_octet at generation time:
+#   bma-site-generate --template small-site --site-slug mysiteslug --octet 100
+#
+# Template versioning uses semver (major.minor).
+# Increment MINOR for additive changes, MAJOR for breaking changes.
+
+template:
+  name: small-site
+  version: "1.0"
+  description: "Small site — 8 physical nodes, 2 missions, 21 VMs"
+  cabling_rules: small-site   # resolves to site_templates/cabling/small-site.yaml
+
+# ── Network addressing ────────────────────────────────────────────────────────
+network:
+  # X in 10.X.y.z — override with --octet at generation time
+  default_site_octet: 100
+  # Supernet covering all site prefixes
+  supernet_template: "10.{X}.0.0/16"
+
+# ── Management VLANs ─────────────────────────────────────────────────────────
+# prefix_template uses {X} = site_octet
+vlans:
+  management:
+    - vid: 100
+      name: mgmt
+      role: management
+      description: "Out-of-band management"
+      prefix_template: "10.{X}.1.0/24"
+
+    - vid: 200
+      name: servers
+      role: server
+      description: "Server management (OS)"
+      prefix_template: "10.{X}.2.0/24"
+
+    - vid: 400
+      name: guest
+      role: network
+      description: "Guest / visitor wireless"
+      prefix_template: "10.{X}.4.0/24"
+
+    - vid: 500
+      name: voip
+      role: voice
+      description: "VoIP telephony"
+      prefix_template: "10.{X}.5.0/24"
+
+    - vid: 600
+      name: ilo
+      role: management
+      description: "HPE iLO out-of-band management"
+      prefix_template: "10.{X}.6.0/24"
+
+    - vid: 700
+      name: vmotion
+      role: network
+      description: "VMware vMotion"
+      prefix_template: "10.{X}.7.0/24"
+
+    - vid: 800
+      name: vsan
+      role: storage
+      description: "VMware vSAN storage traffic"
+      prefix_template: "10.{X}.8.0/24"
+
+    - vid: 900
+      name: ntp
+      role: network
+      description: "NTP appliance reference traffic"
+      prefix_template: "10.{X}.9.0/24"
+
+    - vid: 950
+      name: backup
+      role: storage
+      description: "Backup replication traffic"
+      prefix_template: "10.{X}.95.0/24"
+
+# ── Mission tenants ───────────────────────────────────────────────────────────
+# For each mission N (0-indexed 0..count-1):
+#   users VLAN : 1100 + N*100        prefix: 10.{X}.{11+N}.0/24
+#   apps  VLAN : 1110 + N*100        prefix: 10.{X}.{111+N*10}.0/24
+#   data  VLAN : 1120 + N*100        prefix: 10.{X}.{112+N*10}.0/24
+missions:
+  count: 2
+
+# ── Physical devices ──────────────────────────────────────────────────────────
+# name_pattern uses {n} = 1-indexed counter (01, 02, ...)
+# rack_unit is the starting U position in the rack
+devices:
+  - role: core-switch
+    role_slug: core-switch
+    count: 1
+    model: "Catalyst 9500-48Y4C"
+    model_slug: c9500-48y4c
+    manufacturer: Cisco
+    manufacturer_slug: cisco
+    platform: cisco_iosxe
+    name_pattern: "sw-core-{n:02d}"
+    rack_unit: 1
+    ha: false
+
+  - role: access-switch
+    role_slug: access-switch
+    count: 1
+    model: "Catalyst 9200-48P"
+    model_slug: c9200-48p
+    manufacturer: Cisco
+    manufacturer_slug: cisco
+    platform: cisco_iosxe
+    name_pattern: "sw-access-{n:02d}"
+    rack_unit: 3
+    ha: false
+
+  - role: perimeter-firewall
+    role_slug: perimeter-firewall
+    count: 1
+    model: "Firepower 1150"
+    model_slug: fp1150
+    manufacturer: Cisco
+    manufacturer_slug: cisco
+    platform: cisco_ftd
+    name_pattern: "fw-perim-{n:02d}"
+    rack_unit: 5
+    ha: false
+
+  - role: distribution-switch
+    role_slug: distribution-switch
+    count: 1
+    model: "Catalyst 9300-48P"
+    model_slug: c9300-48p
+    manufacturer: Cisco
+    manufacturer_slug: cisco
+    platform: cisco_iosxe
+    name_pattern: "sw-dist-{n:02d}"
+    rack_unit: 7
+    ha: false
+
+  - role: compute-node
+    role_slug: compute-node
+    count: 2
+    model: "ProLiant DL360 Gen10 Plus"
+    model_slug: dl360-gen10-plus
+    manufacturer: HPE
+    manufacturer_slug: hpe
+    platform: hpe_ilo
+    name_pattern: "esxi-{n:02d}"
+    rack_unit: 9
+    ha: false
+
+  - role: backup-server
+    role_slug: backup-server
+    count: 1
+    model: "ProLiant DL360 Gen10 Plus"
+    model_slug: dl360-gen10-plus
+    manufacturer: HPE
+    manufacturer_slug: hpe
+    platform: hpe_ilo
+    name_pattern: "svr-backup-{n:02d}"
+    rack_unit: 11
+    ha: false
+
+  - role: ntp-server
+    role_slug: ntp-server
+    count: 1
+    model: "LANTIME M300"
+    model_slug: m300
+    manufacturer: Meinberg
+    manufacturer_slug: meinberg
+    platform: meinberg_ntp
+    name_pattern: "ntp-{n:02d}"
+    rack_unit: 12
+    ha: false
+
+# ── Virtualization cluster ────────────────────────────────────────────────────
+cluster:
+  type: "VMware vSphere"
+  type_slug: vmware-vsphere
+  name_pattern: "{site_slug}-vcenter"
+  compute_role_slug: compute-node   # devices with this role become cluster members

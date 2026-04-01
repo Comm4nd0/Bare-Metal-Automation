@@ -1,0 +1,124 @@
+---
+# Bare Metal Automation — Firmware Catalogue
+# Maps platform -> version -> file metadata
+# Used by site_generate.py (NetBox population) and orchestrate.py (pre-flight checks).
+#
+# Schema:
+#   catalogue.<platform>.<version>:
+#     filename:    bare filename on the file server
+#     path:        relative path from the media root (BMA_MEDIA_ROOT env var)
+#     md5:         MD5 hex digest for integrity check (populate before deployment)
+#     platforms:   list of NetBox device-type slugs this image applies to
+#     recommended: true = use this version for new deployments
+#     notes:       free-text release notes / caveats
+
+catalogue:
+
+  # ── Cisco IOS-XE (Catalyst 9000 series) ───────────────────────────────────
+  cisco_iosxe:
+    "17.09.04a":
+      filename: cat9k_iosxe.17.09.04a.SPA.bin
+      path: firmware/cisco/cat9k_iosxe.17.09.04a.SPA.bin
+      md5: ""  # populate: md5sum cat9k_iosxe.17.09.04a.SPA.bin
+      platforms:
+        - c9500-48y4c
+        - c9300-48p
+        - c9200-48p
+      recommended: true
+      notes: "Gold image for Catalyst 9K — Mar 2024 TAC recommended"
+
+    "17.06.05":
+      filename: cat9k_iosxe.17.06.05.SPA.bin
+      path: firmware/cisco/cat9k_iosxe.17.06.05.SPA.bin
+      md5: ""
+      platforms:
+        - c9500-48y4c
+        - c9300-48p
+        - c9200-48p
+      recommended: false
+      notes: "Previous gold image — kept for rollback"
+
+  # ── Cisco Firepower Threat Defence (FTD) ──────────────────────────────────
+  cisco_ftd:
+    "7.4.1":
+      filename: ftd-7.4.1-172.SPA.pkg
+      path: firmware/cisco/ftd-7.4.1-172.SPA.pkg
+      md5: ""
+      platforms:
+        - fp1150
+      recommended: true
+      notes: "FTD 7.4.1 — requires FMC 7.4.x or FDM"
+
+    "7.2.5":
+      filename: ftd-7.2.5-208.SPA.pkg
+      path: firmware/cisco/ftd-7.2.5-208.SPA.pkg
+      md5: ""
+      platforms:
+        - fp1150
+      recommended: false
+      notes: "Previous release — kept for rollback"
+
+  # ── HPE iLO 5 firmware ────────────────────────────────────────────────────
+  hpe_ilo:
+    "2.80":
+      filename: ilo5_280.bin
+      path: firmware/hpe/ilo5_280.bin
+      md5: ""
+      platforms:
+        - dl360-gen10
+        - dl360-gen10-plus
+      recommended: true
+      notes: "iLO 5 2.80 — SLES 15 SP4 / RHEL 9 support"
+
+    "2.72":
+      filename: ilo5_272.bin
+      path: firmware/hpe/ilo5_272.bin
+      md5: ""
+      platforms:
+        - dl360-gen10
+        - dl360-gen10-plus
+      recommended: false
+      notes: "Previous release"
+
+  # ── HPE System ROM (BIOS) ─────────────────────────────────────────────────
+  hpe_bios:
+    "2.66_09-01-2023":
+      filename: U46_2.66_09_01_2023.signed.flash
+      path: firmware/hpe/U46_2.66_09_01_2023.signed.flash
+      md5: ""
+      platforms:
+        - dl360-gen10-plus
+      recommended: true
+      notes: "DL360 Gen10+ System ROM"
+
+  # ── HPE SPP (Service Pack for ProLiant) ───────────────────────────────────
+  hpe_spp:
+    "2023.09.0":
+      filename: P52068_001_spp-2023.09.0-SPP2023090.2023_0921.6.iso
+      path: firmware/hpe/spp-2023.09.0.iso
+      md5: ""
+      platforms:
+        - dl360-gen10
+        - dl360-gen10-plus
+      recommended: true
+      notes: "HPE SPP Gen10/Gen10+ bundle — Sep 2023"
+
+  # ── Meinberg LANTIME NTP ──────────────────────────────────────────────────
+  meinberg_ntp:
+    "7.06.006":
+      filename: meinberg-7.06.006.tgz
+      path: firmware/meinberg/meinberg-7.06.006.tgz
+      md5: ""
+      platforms:
+        - m300
+      recommended: true
+      notes: "LANTIME 7.06.006 — stable release"
+
+    "7.04.004":
+      filename: meinberg-7.04.004.tgz
+      path: firmware/meinberg/meinberg-7.04.004.tgz
+      md5: ""
+      platforms:
+        - m300
+      recommended: false
+      notes: "Previous release — kept for rollback"

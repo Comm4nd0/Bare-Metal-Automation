@@ -1,0 +1,162 @@
+---
+# Bare Metal Automation — Medium Site Cabling Rules
+# 25 cables | matches medium-site template v1.0
+
+cables:
+
+  # ── Core switch uplinks ──────────────────────────────────────────────────
+  - description: "Core to FW — primary uplink"
+    a: {device: sw-core-01, interface: "Te1/0/48"}
+    b: {device: fw-perim-01, interface: "Gi0/0"}
+    type: cat6a
+    color: yellow
+
+  - description: "Core to Access — uplink"
+    a: {device: sw-core-01, interface: "Te1/0/47"}
+    b: {device: sw-access-01, interface: "Gi1/0/48"}
+    type: cat6a
+    color: blue
+
+  # ── Core switch → Distribution switches ─────────────────────────────────
+  - description: "Core to Dist-01"
+    a: {device: sw-core-01, interface: "Te1/0/1"}
+    b: {device: sw-dist-01, interface: "Te1/1/1"}
+    type: cat6a
+    color: blue
+
+  - description: "Core to Dist-02"
+    a: {device: sw-core-01, interface: "Te1/0/2"}
+    b: {device: sw-dist-02, interface: "Te1/1/1"}
+    type: cat6a
+    color: blue
+
+  - description: "Core to Dist-03"
+    a: {device: sw-core-01, interface: "Te1/0/3"}
+    b: {device: sw-dist-03, interface: "Te1/1/1"}
+    type: cat6a
+    color: blue
+
+  - description: "Core to Dist-04"
+    a: {device: sw-core-01, interface: "Te1/0/4"}
+    b: {device: sw-dist-04, interface: "Te1/1/1"}
+    type: cat6a
+    color: blue
+
+  - description: "Core to Dist-05"
+    a: {device: sw-core-01, interface: "Te1/0/5"}
+    b: {device: sw-dist-05, interface: "Te1/1/1"}
+    type: cat6a
+    color: blue
+
+  # ── Access switch → ESXi iLO (out-of-band management) ───────────────────
+  - description: "Access to ESXi-01 iLO"
+    a: {device: sw-access-01, interface: "Gi1/0/1"}
+    b: {device: esxi-01,      interface: "iLO"}
+    type: cat6
+    color: red
+
+  - description: "Access to ESXi-02 iLO"
+    a: {device: sw-access-01, interface: "Gi1/0/2"}
+    b: {device: esxi-02,      interface: "iLO"}
+    type: cat6
+    color: red
+
+  - description: "Access to ESXi-03 iLO"
+    a: {device: sw-access-01, interface: "Gi1/0/3"}
+    b: {device: esxi-03,      interface: "iLO"}
+    type: cat6
+    color: red
+
+  - description: "Access to ESXi-04 iLO"
+    a: {device: sw-access-01, interface: "Gi1/0/4"}
+    b: {device: esxi-04,      interface: "iLO"}
+    type: cat6
+    color: red
+
+  - description: "Access to ESXi-05 iLO"
+    a: {device: sw-access-01, interface: "Gi1/0/5"}
+    b: {device: esxi-05,      interface: "iLO"}
+    type: cat6
+    color: red
+
+  # ── Access switch → ESXi NIC slot 1 (primary data NIC) ──────────────────
+  - description: "Access to ESXi-01 NIC.Slot.1.1"
+    a: {device: sw-access-01, interface: "Gi1/0/11"}
+    b: {device: esxi-01,      interface: "NIC.Slot.1.1"}
+    type: cat6
+    color: green
+
+  - description: "Access to ESXi-02 NIC.Slot.1.1"
+    a: {device: sw-access-01, interface: "Gi1/0/12"}
+    b: {device: esxi-02,      interface: "NIC.Slot.1.1"}
+    type: cat6
+    color: green
+
+  - description: "Access to ESXi-03 NIC.Slot.1.1"
+    a: {device: sw-access-01, interface: "Gi1/0/13"}
+    b: {device: esxi-03,      interface: "NIC.Slot.1.1"}
+    type: cat6
+    color: green
+
+  - description: "Access to ESXi-04 NIC.Slot.1.1"
+    a: {device: sw-access-01, interface: "Gi1/0/14"}
+    b: {device: esxi-04,      interface: "NIC.Slot.1.1"}
+    type: cat6
+    color: green
+
+  - description: "Access to ESXi-05 NIC.Slot.1.1"
+    a: {device: sw-access-01, interface: "Gi1/0/15"}
+    b: {device: esxi-05,      interface: "NIC.Slot.1.1"}
+    type: cat6
+    color: green
+
+  # ── Access switch → ESXi NIC slot 2 (secondary / vMotion NIC) ───────────
+  - description: "Access to ESXi-01 NIC.Slot.2.1"
+    a: {device: sw-access-01, interface: "Gi1/0/21"}
+    b: {device: esxi-01,      interface: "NIC.Slot.2.1"}
+    type: cat6
+    color: green
+
+  - description: "Access to ESXi-02 NIC.Slot.2.1"
+    a: {device: sw-access-01, interface: "Gi1/0/22"}
+    b: {device: esxi-02,      interface: "NIC.Slot.2.1"}
+    type: cat6
+    color: green
+
+  - description: "Access to ESXi-03 NIC.Slot.2.1"
+    a: {device: sw-access-01, interface: "Gi1/0/23"}
+    b: {device: esxi-03,      interface: "NIC.Slot.2.1"}
+    type: cat6
+    color: green
+
+  - description: "Access to ESXi-04 NIC.Slot.2.1"
+    a: {device: sw-access-01, interface: "Gi1/0/24"}
+    b: {device: esxi-04,      interface: "NIC.Slot.2.1"}
+    type: cat6
+    color: green
+
+  - description: "Access to ESXi-05 NIC.Slot.2.1"
+    a: {device: sw-access-01, interface: "Gi1/0/25"}
+    b: {device: esxi-05,      interface: "NIC.Slot.2.1"}
+    type: cat6
+    color: green
+
+  # ── Access switch → Backup server ───────────────────────────────────────
+  - description: "Access to Backup-01 iLO"
+    a: {device: sw-access-01,  interface: "Gi1/0/6"}
+    b: {device: svr-backup-01, interface: "iLO"}
+    type: cat6
+    color: red
+
+  - description: "Access to Backup-01 NIC.Slot.1.1"
+    a: {device: sw-access-01,  interface: "Gi1/0/16"}
+    b: {device: svr-backup-01, interface: "NIC.Slot.1.1"}
+    type: cat6
+    color: green
+
+  # ── Access switch → NTP appliance ───────────────────────────────────────
+  - description: "Access to NTP-01 ETH0"
+    a: {device: sw-access-01, interface: "Gi1/0/31"}
+    b: {device: ntp-01,       interface: "ETH0"}
+    type: cat6
+    color: orange
