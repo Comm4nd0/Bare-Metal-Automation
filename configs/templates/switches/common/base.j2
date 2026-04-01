@@ -1,0 +1,123 @@
+!
+! ============================================================
+!  Base hardening — hostname, AAA, SSH, NTP, logging, SNMP
+!  Included by all switch and router role templates.
+! ============================================================
+!
+hostname {{ hostname }}
+ip domain name {{ domain_name }}
+!
+! ── Service hardening ────────────────────────────────────────
+no service pad
+service tcp-keepalives-in
+service tcp-keepalives-out
+service timestamps log datetime msec localtime show-timezone
+service timestamps debug datetime msec localtime show-timezone
+service password-encryption
+service compress-config
+no ip source-route
+no ip gratuitous-arps
+no ip finger
+no ip http server
+no ip http secure-server
+no ip bootp server
+no cdp run
+no lldp run
+no proxy-arp
+!
+! ── Disable unneeded protocols ───────────────────────────────
+no ip domain-lookup
+!
+! ── AAA / TACACS+ ────────────────────────────────────────────
+aaa new-model
+!
+{% if tacacs_key %}
+tacacs server TACACS-PRIMARY
+ address ipv4 {{ ad_server }}
+ key {{ tacacs_key }}
+ timeout 5
+!
+aaa group server tacacs+ BMA-TACACS
+ server name TACACS-PRIMARY
+!
+aaa authentication login default group BMA-TACACS local
+aaa authentication enable default group BMA-TACACS enable
+aaa authorization exec default group BMA-TACACS local if-authenticated
+aaa authorization commands 15 default group BMA-TACACS local if-authenticated
+aaa accounting exec default start-stop group BMA-TACACS
+aaa accounting commands 15 default start-stop group BMA-TACACS
+{% else %}
+aaa authentication login default local
+aaa authentication enable default enable
+{% endif %}
+!
+! ── Local users (fallback when AAA unavailable) ───────────────
+username admin privilege 15 secret {{ enable_secret }}
+!
+! ── Enable secret ────────────────────────────────────────────
+enable secret {{ enable_secret }}
+!
+! ── SSH ──────────────────────────────────────────────────────
+crypto key generate rsa modulus 2048
+ip ssh version 2
+ip ssh time-out 60
+ip ssh authentication-retries 3
+ip ssh source-interface Vlan{{ vlans | selectattr('is_management') | map(attribute='vid') | first | default(100) }}
+!
+! ── NTP ──────────────────────────────────────────────────────
+{% for ntp in ntp_servers %}
+ntp server {{ ntp }} prefer
+{% endfor %}
+ntp authenticate
+ntp authentication-key 1 md5 {{ tacacs_key | default('changeme') }}
+ntp trusted-key 1
+clock timezone UTC 0 0
+!
+! ── DNS ──────────────────────────────────────────────────────
+{% for dns in dns_servers %}
+ip name-server {{ dns }}
+{% endfor %}
+ip domain name {{ domain_name }}
+!
+! ── Syslog ───────────────────────────────────────────────────
+{% if syslog_server %}
+logging host {{ syslog_server }}
+logging trap informational
+logging source-interface Vlan{{ vlans | selectattr('is_management') | map(attribute='vid') | first | default(100) }}
+{% endif %}
+logging buffered 16384
+no logging console
+!
+! ── SNMP ─────────────────────────────────────────────────────
+{% if snmp_community_ro %}
+snmp-server community {{ snmp_community_ro }} RO
+snmp-server contact BMA-NOC
+snmp-server location {{ site_slug | upper }}
+snmp-server enable traps
+{% if syslog_server %}
+snmp-server host {{ syslog_server }} version 2c {{ snmp_community_ro }}
+{% endif %}
+{% endif %}
+!
+! ── Banner ───────────────────────────────────────────────────
+banner motd ^
+*******************************************************************************
+*  AUTHORIZED ACCESS ONLY — {{ hostname | upper }}                            *
+*  Managed by Bare Metal Automation — {{ site_slug | upper }}                 *
+*  Unauthorized access is prohibited and will be prosecuted.                  *
+*******************************************************************************
+^
+!
+! ── Console and VTY ──────────────────────────────────────────
+line con 0
+ exec-timeout 10 0
+ logging synchronous
+ transport preferred none
+!
+line vty 0 15
+ exec-timeout 15 0
+ logging synchronous
+ transport input ssh
+ transport output none
+ login authentication default
+!

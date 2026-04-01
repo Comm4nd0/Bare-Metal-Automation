@@ -1,0 +1,140 @@
+!
+! ============================================================
+!  BMA — {{ hostname }}
+!  Role  : Access / Infrastructure Switch
+!         server iLO ports (VLAN 600), server data trunks,
+!         NTP port, mgmt laptop port, unused shutdown on 999.
+!  Serial: {{ serial }}
+!  Site  : {{ site_slug | upper }}
+! ============================================================
+!
+{% include "switches/common/base.j2" %}
+!
+{% include "switches/common/vlans.j2" %}
+!
+! ============================================================
+!  Spanning Tree — access switches are non-root (priority 32768)
+! ============================================================
+!
+{% include "switches/common/stp.j2" %}
+!
+! ============================================================
+!  Management SVI
+! ============================================================
+!
+interface Vlan100
+ description MGMT — {{ hostname }}
+ ip address {{ mgmt_ip }} {{ mgmt_mask }}
+ no shutdown
+!
+ip default-gateway {{ mgmt_gateway }}
+!
+! ============================================================
+!  Uplink trunks to core (DHCP snooping + ARP inspection trust)
+! ============================================================
+!
+{% for iface in interfaces if iface.mode == 'trunk' and 'core' in iface.description | lower %}
+interface {{ iface.name }}
+ description {{ iface.description }}
+ switchport mode trunk
+ switchport trunk encapsulation dot1q
+ switchport trunk native vlan 999
+ switchport trunk allowed vlan all
+ ip dhcp snooping trust
+ ip arp inspection trust
+ no shutdown
+!
+{% endfor %}
+!
+! ============================================================
+!  Server iLO/management ports — VLAN 600
+! ============================================================
+!
+{% for iface in interfaces if 'ilo' in iface.description | lower or 'idrac' in iface.description | lower %}
+interface {{ iface.name }}
+ description {{ iface.description }}
+ switchport mode access
+ switchport access vlan 600
+ spanning-tree portfast
+ no shutdown
+!
+{% endfor %}
+!
+! ============================================================
+!  Server data trunks — carry all VLANs to bond/team NICs
+! ============================================================
+!
+{% for iface in interfaces if iface.mode == 'trunk' and 'server' in iface.description | lower %}
+interface {{ iface.name }}
+ description {{ iface.description }}
+ switchport mode trunk
+ switchport trunk encapsulation dot1q
+ switchport trunk native vlan 999
+ switchport trunk allowed vlan all
+ no shutdown
+!
+{% endfor %}
+!
+! ============================================================
+!  NTP server port — VLAN 200 (or 100 if only mgmt available)
+! ============================================================
+!
+{% for iface in interfaces if 'ntp' in iface.description | lower or 'meinberg' in iface.description | lower %}
+interface {{ iface.name }}
+ description {{ iface.description }}
+ switchport mode access
+ switchport access vlan 200
+ spanning-tree portfast
+ no shutdown
+!
+{% endfor %}
+!
+! ============================================================
+!  Management laptop port — VLAN 100, portfast, no auth
+! ============================================================
+!
+{% for iface in interfaces if 'laptop' in iface.description | lower or 'console' in iface.description | lower %}
+interface {{ iface.name }}
+ description {{ iface.description }}
+ switchport mode access
+ switchport access vlan 100
+ spanning-tree portfast
+ no shutdown
+!
+{% endfor %}
+!
+! ============================================================
+!  All remaining access ports — general use
+! ============================================================
+!
+{% for iface in interfaces if iface.mode == 'access'
+   and 'ilo' not in iface.description | lower
+   and 'idrac' not in iface.description | lower
+   and 'ntp' not in iface.description | lower
+   and 'meinberg' not in iface.description | lower
+   and 'laptop' not in iface.description | lower
+   and 'console' not in iface.description | lower
+   and 'server' not in iface.description | lower
+   and not iface.shutdown %}
+interface {{ iface.name }}
+ description {{ iface.description }}
+ switchport mode access
+ switchport access vlan {{ iface.access_vlan }}
+ spanning-tree portfast
+ no shutdown
+!
+{% endfor %}
+!
+! ── Unused ports — shutdown and put on VLAN 999 ──────────────
+{% for iface in interfaces if iface.shutdown %}
+interface {{ iface.name }}
+ description UNUSED
+ switchport mode access
+ switchport access vlan 999
+ shutdown
+!
+{% endfor %}
+!
+{% include "switches/common/security.j2" %}
+!
+end

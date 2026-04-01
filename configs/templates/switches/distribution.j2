@@ -1,0 +1,139 @@
+!
+! ============================================================
+!  BMA — {{ hostname }}
+!  Role  : L2 Distribution Switch — 802.1X user-port authentication
+!  Serial: {{ serial }}
+!  Site  : {{ site_slug | upper }}
+! ============================================================
+!
+{% include "switches/common/base.j2" %}
+!
+{% include "switches/common/vlans.j2" %}
+!
+! ============================================================
+!  Spanning Tree — distribution is secondary root (priority 8192)
+! ============================================================
+!
+spanning-tree mode rapid-pvst
+spanning-tree extend system-id
+spanning-tree loopguard default
+spanning-tree portfast bpduguard default
+!
+{% for vlan in vlans if vlan.is_management %}
+spanning-tree vlan {{ vlan.vid }} priority 8192
+{% endfor %}
+{% for tenant in mission_tenants %}
+spanning-tree vlan {{ tenant.user_vlan }} priority 8192
+spanning-tree vlan {{ tenant.apps_vlan }} priority 8192
+spanning-tree vlan {{ tenant.data_vlan }} priority 8192
+{% endfor %}
+!
+! ============================================================
+!  RADIUS — 802.1X authentication via NPS
+! ============================================================
+!
+{% if nps_server %}
+radius server NPS-PRIMARY
+ address ipv4 {{ nps_server }} auth-port 1812 acct-port 1813
+ key {{ radius_key }}
+ timeout 5
+ retransmit 3
+!
+aaa group server radius BMA-RADIUS
+ server name NPS-PRIMARY
+!
+aaa authentication dot1x default group BMA-RADIUS
+aaa authorization network default group BMA-RADIUS
+aaa accounting dot1x default start-stop group BMA-RADIUS
+!
+dot1x system-auth-control
+!
+{% endif %}
+!
+! ============================================================
+!  Management SVI
+! ============================================================
+!
+interface Vlan100
+ description MGMT — {{ hostname }}
+ ip address {{ mgmt_ip }} {{ mgmt_mask }}
+ no shutdown
+!
+ip default-gateway {{ mgmt_gateway }}
+!
+! ============================================================
+!  Trunk uplinks to core (DHCP snooping trust)
+! ============================================================
+!
+{% for iface in interfaces if iface.mode == 'trunk' %}
+interface {{ iface.name }}
+ description {{ iface.description }}
+ switchport mode trunk
+ switchport trunk encapsulation dot1q
+ switchport trunk native vlan 999
+ switchport trunk allowed vlan all
+ ip dhcp snooping trust
+ ip arp inspection trust
+ no shutdown
+!
+{% endfor %}
+!
+! ============================================================
+!  User access ports — 802.1X with MAB fallback + VLAN assignment
+! ============================================================
+!
+{% for iface in interfaces if iface.mode == 'access' and iface.dot1x %}
+interface {{ iface.name }}
+ description {{ iface.description }}
+ switchport mode access
+ switchport access vlan {{ iface.access_vlan }}
+ switchport nonegotiate
+ spanning-tree portfast
+ spanning-tree bpduguard enable
+ authentication event fail action next-method
+ authentication event server dead action reinitialize vlan {{ iface.access_vlan }}
+ authentication event server alive action reinitialize
+ authentication host-mode multi-auth
+ authentication order dot1x mab
+ authentication priority dot1x mab
+ authentication port-control auto
+ authentication periodic
+ authentication timer reauthenticate server
+ mab
+ dot1x pae authenticator
+ dot1x timeout tx-period 7
+ storm-control broadcast level 20.00
+ storm-control multicast level 10.00
+ storm-control action shutdown
+ ip verify source
+ no shutdown
+!
+{% endfor %}
+!
+! ============================================================
+!  Non-dot1x access ports
+! ============================================================
+!
+{% for iface in interfaces if iface.mode == 'access' and not iface.dot1x and not iface.shutdown %}
+interface {{ iface.name }}
+ description {{ iface.description }}
+ switchport mode access
+ switchport access vlan {{ iface.access_vlan }}
+ spanning-tree portfast
+ no shutdown
+!
+{% endfor %}
+!
+! ── Unused ports ─────────────────────────────────────────────
+{% for iface in interfaces if iface.shutdown %}
+interface {{ iface.name }}
+ description UNUSED
+ switchport mode access
+ switchport access vlan 999
+ shutdown
+!
+{% endfor %}
+!
+{% include "switches/common/security.j2" %}
+!
+end

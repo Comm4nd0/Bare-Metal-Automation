@@ -363,6 +363,45 @@ Bare Metal Automation is a zero-touch provisioning tool for bare-metal infrastru
 
 **Note**: Session 9 (Rollback to Factory) on main implemented a more complete version of this functionality with dashboard integration, checkpoint/resume, and simulation support. This PR's `resetter/` module overlaps with `rollback/` — needs reconciliation.
 
+### Session 12 — Config & Media Generation (Sprint 2 / Pillar 2)
+
+**Date**: 2026-04-01
+**Branch**: `luma/objective-bhabha`
+
+**What was done**:
+- Built the complete Config & Media Generation layer (Pillar 2) — transforms NetBox device data into a deployment bundle ready for offline provisioning.
+- Created `src/bare_metal_automation/config_media/` package with 6 modules:
+  - `renderer.py` — `ConfigRenderer`: Jinja2 rendering engine. Selects template from device's `config_template` custom field (falls back to role default). `build_context()` factory maps raw pynetbox records to `RenderContext`. Includes `VlanContext`, `InterfaceContext`, `MissionTenant` dataclasses. Strict-mode Jinja2 (raises on undefined vars). `render_all()` collects errors and raises aggregated `RuntimeError`.
+  - `inventory_export.py` — `InventoryExporter`: generates `inventory.yaml` from NetBox device specs + deployment metadata. `from_netbox()` factory wires together `NetBoxClient` + `mapper`. Enriches specs with config filename, firmware filename, media paths.
+  - `firmware_catalogue.py` — `FirmwareCatalogue`: loads `configs/firmware_catalogue.yaml`, resolves `(platform, version)` → `FirmwareEntry` with full path. Handles network firmware, HPE SPP ISO, iLO firmware, OS ISOs. `verify_all()` checks files exist before collection (strict/non-strict mode).
+  - `media_collector.py` — `MediaCollector`: copies firmware/ISOs/certs to bundle staging dir, verifies SHA-256 after each copy. Thread-safe. `collect_batch()` tolerates individual failures. `write_checksums_file()` writes sha256sum-compatible manifest.
+  - `bundle_packager.py` — `BundlePackager`: assembles manifest.yaml, checksums.sha256, ansible hosts.ini. `validate()` checks for required files. `package_archive()` creates `.tar.gz` from bundle dir.
+  - `generate.py` — `bma-generate` CLI: 9-step pipeline (connect NetBox → fetch devices → render configs → export inventory → load catalogue → collect media → write ansible inventory → write manifest/checksums → validate). All steps are guarded with proper error handling and `--dry-run` support.
+- Created production-quality Jinja2 template tree under `configs/templates/`:
+  - `switches/common/base.j2` — hostname, AAA/TACACS+, SSH, NTP, DNS, syslog, SNMP, banners, VTY/console
+  - `switches/common/vlans.j2` — management VLANs (100/200/400/500/600/700/800/900/950) + mission tenant VLAN blocks
+  - `switches/common/stp.j2` — rapid-PVST, loopguard, BPDUguard defaults, per-VLAN priorities
+  - `switches/common/interfaces.j2` — trunk/access/routed/LAG modes, 802.1X, portfast, shutdown
+  - `switches/common/security.j2` — DHCP snooping, Dynamic ARP Inspection, storm control, IP source guard
+  - `switches/core.j2` — L3 core: SVIs for all mgmt + mission VLANs, OSPF area 0, DHCP relay, per-tenant egress ACLs (deny cross-mission, allow DNS/NTP/AD)
+  - `switches/core-ha.j2` — extends core.j2 with HSRP v2 on every SVI, WAN uplink tracking
+  - `switches/distribution.j2` — L2 distribution: 802.1X/MAB user ports, RADIUS via NPS, IP verify source, storm control
+  - `switches/access.j2` — infrastructure access: iLO ports (VLAN 600), server data trunks, NTP port, mgmt laptop port, unused shutdown on VLAN 999
+  - `firewalls/perimeter-router.j2` — zone-based firewall: inside/outside, OSPF, NAT/PAT, one zone per mission tenant, zone pairs (mission→mgmt DNS/NTP/AD only, mission→mission deny, mission→outside web, mgmt→any inspect)
+  - `firewalls/perimeter-router-ha.j2` — extends perimeter-router.j2 with HSRP on LAN sub-interfaces, stateful NAT HA (ip nat stateful), WAN tracking
+- Created `configs/firmware_catalogue.yaml` — example with Cisco IOS/IOS-XE/ASA/FTD, HPE DL325/DL360/DL380 SPP + iLO, RHEL9 + Windows Server 2022 OS ISOs
+- Added `bma-generate` entry point to `pyproject.toml`
+- Created `tests/unit/test_config_media.py` with 32 tests covering all 5 non-CLI modules
+
+**Decisions made**:
+- Management VLANs (100/200/400/500/600/700/800/900/950) are hard-coded constants in renderer.py — operators override via NetBox VLANs, but the set never changes per design
+- Mission tenant VLAN blocks: base 1100, stride 100 (1100 users/1110 apps/1120 data, 1200/1210/1220, …) — matches firewall zone naming and ACL numbering
+- Secrets are injected as Ansible Vault references (`{{ vault_enable_secret }}`) — the template renders vault references, not plaintext secrets
+- `ConfigRenderer` uses Jinja2 `StrictUndefined` by default — fails loudly on missing variables rather than silently rendering empty strings
+- `perimeter-router.j2` is used for both `border-router` and `perimeter-firewall` roles — operator sets `config_template` custom field in NetBox to differentiate if needed
+- Bundle layout: `configs/`, `firmware/`, `isos/`, `certs/`, `ansible/` + `inventory.yaml`, `manifest.yaml`, `checksums.sha256`
+- `bma-generate --dry-run` skips all file writes but prints what would be rendered — safe to run against prod NetBox
+
 ---
 
 ## Current State of the Project
@@ -382,6 +421,7 @@ Bare Metal Automation is a zero-touch provisioning tool for bare-metal infrastru
 - **Deployment control buttons** — Start/Stop/Resume from the dashboard UI, mutual exclusion with simulation
 - **Rollback to Factory** — Full factory reset of all devices (network, servers, NTP) from dashboard or CLI, with checkpoint/resume, safety confirmation, and simulation support
 - **NetBox integration** — Single source of truth for node configs; "Prepare Build" dashboard button pulls from NetBox + git repo, generates inventory; optional (backward-compatible with manual YAML)
+- **Config & Media Generation (Pillar 2)** — `bma-generate` CLI: renders Jinja2 configs from NetBox data, exports inventory.yaml, resolves firmware catalogue, collects media with checksum verification, packages complete deployment bundle with manifest + checksums; 11 production templates (core/core-ha/distribution/access switches, perimeter-router/HA firewall, 5 common includes)
 
 ### What exists (Sprint 1 — NetBox Site Lifecycle)
 
@@ -398,7 +438,7 @@ Bare Metal Automation is a zero-touch provisioning tool for bare-metal infrastru
 
 - **Milestone 1 (Foundation/MVP)**: DHCP server wrapper, CDP collector, serial collector, device matcher, ~~mock device simulator~~, unit tests
 - **Milestone 2 (Cabling Validation)**: Intent parser, cabling diff engine, adaptation engine
-- **Milestone 3 (Network Config)**: Config renderer, Ansible dynamic inventory, playbooks, dead man's switch implementation, rollback handler
+- **Milestone 3 (Network Config)**: ~~Config renderer (Jinja2 rendering engine, all templates)~~, ~~Ansible dynamic inventory (hosts.ini generation)~~, playbooks, dead man's switch implementation, rollback handler
 - **Milestone 4 (Server Provisioning)**: ~~Redfish client~~, ~~iLO discovery~~, ~~firmware update~~, ~~BIOS config~~, ~~virtual media~~, PXE (partially done — virtual media boot implemented)
 - **Milestone 5 (Dashboard)**: WebSocket live updates, topology visualisation (D3.js/vis.js), ~~deploy button~~, log viewer, ~~simulation mode~~
 - **Milestone 6 (Hardening)**: Serial console fallback, retry logic, ~~state persistence~~, multi-NIC, LLDP
@@ -475,6 +515,13 @@ src/bare_metal_automation/
 │   ├── loader.py            # Load node from NetBox → DeploymentInventory
 │   ├── mapper.py            # Transform NetBox data to BMA spec format
 │   └── git.py               # Git repo clone/pull for templates + firmware
+├── config_media/
+│   ├── renderer.py          # Jinja2 rendering engine (ConfigRenderer, RenderContext, VLAN/iface/tenant builders)
+│   ├── inventory_export.py  # Generate inventory.yaml from NetBox device specs
+│   ├── firmware_catalogue.py # Load/resolve firmware_catalogue.yaml (network fw, SPP, iLO, OS ISOs)
+│   ├── media_collector.py   # Copy + SHA-256 verify firmware/ISOs/certs into bundle staging dir
+│   ├── bundle_packager.py   # Assemble manifest.yaml, checksums.sha256, ansible hosts.ini, .tar.gz
+│   └── generate.py          # bma-generate CLI (9-step pipeline: NetBox → configs → inventory → media → bundle)
 └── dashboard/               # Django app (models, views, API, templates, sim, rollback, prepare)
 ```
 

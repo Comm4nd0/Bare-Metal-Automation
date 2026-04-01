@@ -1,78 +1,191 @@
 !
-! Bare Metal Automation generated config for {{ hostname }}
-! Role: Core Switch
-! Serial: {{ serial }}
+! ============================================================
+!  BMA — {{ hostname }}
+!  Role  : L3 Core Switch
+!  Serial: {{ serial }}
+!  Site  : {{ site_slug | upper }}
+!  Generated: {{ "now" | default("") }}
+! ============================================================
 !
-hostname {{ hostname }}
+{% include "switches/common/base.j2" %}
 !
-! Management
-vlan {{ management_vlan }}
-  name MANAGEMENT
+{% include "switches/common/vlans.j2" %}
 !
-interface Vlan{{ management_vlan }}
-  description Management Interface
-  ip address {{ management_ip }} {{ management_subnet }}
-  no shutdown
+! ============================================================
+!  Spanning Tree — core is root for all VLANs
+! ============================================================
 !
-! Spanning Tree — core switch is root
 spanning-tree mode rapid-pvst
-spanning-tree vlan 1-4094 priority 4096
+spanning-tree extend system-id
+spanning-tree loopguard default
+spanning-tree portfast bpduguard default
 !
-! Uplinks to other switches — trunk all VLANs
-interface GigabitEthernet1/0/47
-  description Uplink to sw-access-02
-  switchport mode trunk
-  switchport trunk allowed vlan all
-  no shutdown
-!
-interface GigabitEthernet1/0/48
-  description Uplink to sw-access-01
-  switchport mode trunk
-  switchport trunk allowed vlan all
-  no shutdown
-!
-! Router uplink
-interface GigabitEthernet1/0/24
-  description Uplink to rtr-border-01
-  switchport mode trunk
-  switchport trunk allowed vlan all
-  no shutdown
-!
-! Server access ports
-{% for i in range(1, 13) %}
-interface GigabitEthernet1/0/{{ i }}
-  description Server port {{ i }}
-  switchport mode access
-  switchport access vlan 10
-  spanning-tree portfast
-  no shutdown
-!
+{% for vlan in vlans if vlan.is_management %}
+spanning-tree vlan {{ vlan.vid }} priority 4096
 {% endfor %}
-! Security
-no ip http server
-no ip http secure-server
-service password-encryption
-!
-! Disable unused ports
-{% for i in range(13, 24) %}
-interface GigabitEthernet1/0/{{ i }}
-  shutdown
-!
-{% endfor %}
-{% for i in range(25, 47) %}
-interface GigabitEthernet1/0/{{ i }}
-  shutdown
-!
+{% for tenant in mission_tenants %}
+spanning-tree vlan {{ tenant.user_vlan }} priority 4096
+spanning-tree vlan {{ tenant.apps_vlan }} priority 4096
+spanning-tree vlan {{ tenant.data_vlan }} priority 4096
 {% endfor %}
 !
-! Logging and management access
-logging buffered 16384
-no logging console
+! ============================================================
+!  SVIs — management + per-mission-tenant inter-VLAN routing
+! ============================================================
 !
-line con 0
-  logging synchronous
-line vty 0 15
-  transport input ssh
-  login local
+! Management SVI
+interface Vlan100
+ description MGMT — {{ hostname }}
+ ip address {{ mgmt_ip }} {{ mgmt_mask }}
+ no shutdown
+!
+interface Vlan200
+ description VOICE
+ ip address 10.0.200.1 255.255.255.0
+ no shutdown
+!
+interface Vlan400
+ description SERVERS
+ ip address 10.0.40.1 255.255.255.0
+ no shutdown
+!
+interface Vlan500
+ description PRINTERS
+ ip address 10.0.50.1 255.255.255.0
+ no shutdown
+!
+interface Vlan600
+ description ILO — server management
+ ip address 10.0.60.1 255.255.255.0
+ no shutdown
+!
+interface Vlan700
+ description AD — Active Directory
+ ip address 10.0.70.1 255.255.255.0
+ no shutdown
+!
+interface Vlan800
+ description WIRELESS
+ ip address 10.0.80.1 255.255.255.0
+ no shutdown
+!
+interface Vlan900
+ description STORAGE
+ ip address 10.0.90.1 255.255.255.0
+ no shutdown
+!
+interface Vlan950
+ description QUARANTINE
+ ip address 10.0.95.1 255.255.255.0
+ no shutdown
+!
+! Mission tenant SVIs
+{% for tenant in mission_tenants %}
+interface Vlan{{ tenant.user_vlan }}
+ description {{ tenant.name }}_USERS
+{% if tenant.user_gateway %}
+ ip address {{ tenant.user_gateway }} {{ tenant.user_mask }}
+{% endif %}
+ ip helper-address {{ dhcp_server }}
+ no shutdown
+!
+interface Vlan{{ tenant.apps_vlan }}
+ description {{ tenant.name }}_APPS
+{% if tenant.apps_gateway %}
+ ip address {{ tenant.apps_gateway }} {{ tenant.apps_mask }}
+{% endif %}
+ ip helper-address {{ dhcp_server }}
+ no shutdown
+!
+interface Vlan{{ tenant.data_vlan }}
+ description {{ tenant.name }}_DATA
+{% if tenant.data_gateway %}
+ ip address {{ tenant.data_gateway }} {{ tenant.data_mask }}
+{% endif %}
+ ip helper-address {{ dhcp_server }}
+ no shutdown
+!
+{% endfor %}
+!
+! ============================================================
+!  OSPF — redistribute SVIs into OSPF area 0
+! ============================================================
+!
+router ospf 1
+ router-id {{ mgmt_ip }}
+ passive-interface default
+{% for iface in interfaces if iface.mode == 'trunk' %}
+ no passive-interface {{ iface.name }}
+{% endfor %}
+ network {{ mgmt_ip }} 0.0.0.0 area 0
+{% for tenant in mission_tenants %}
+{% if tenant.user_gateway %}
+ network {{ tenant.user_subnet }} 0.0.0.255 area 0
+{% endif %}
+{% if tenant.apps_gateway %}
+ network {{ tenant.apps_subnet }} 0.0.0.255 area 0
+{% endif %}
+{% if tenant.data_gateway %}
+ network {{ tenant.data_subnet }} 0.0.0.255 area 0
+{% endif %}
+{% endfor %}
+ area 0 authentication message-digest
+!
+! ── Default route toward border ──────────────────────────────
+ip route 0.0.0.0 0.0.0.0 {{ mgmt_gateway }}
+!
+! ============================================================
+!  Inter-tenant ACLs — deny cross-mission, allow mgmt services
+! ============================================================
+!
+{% for tenant in mission_tenants %}
+! ACL: permit {{ tenant.name }} to reach DNS/NTP/AD, deny all cross-tenant
+ip access-list extended ACL_MISSION{{ tenant.index }}_EGRESS
+ remark Allow DNS to management zone
+{% if dns_servers %}
+{% for dns in dns_servers %}
+ permit udp {{ tenant.user_subnet }} 0.0.0.255 host {{ dns }} eq 53
+ permit udp {{ tenant.apps_subnet }} 0.0.0.255 host {{ dns }} eq 53
+ permit udp {{ tenant.data_subnet }} 0.0.0.255 host {{ dns }} eq 53
+{% endfor %}
+{% endif %}
+ remark Allow NTP to management zone
+{% for ntp in ntp_servers %}
+ permit udp {{ tenant.user_subnet }} 0.0.0.255 host {{ ntp }} eq 123
+{% endfor %}
+ remark Allow AD / LDAP
+{% if ad_server %}
+ permit tcp {{ tenant.user_subnet }} 0.0.0.255 host {{ ad_server }} eq 389
+ permit tcp {{ tenant.user_subnet }} 0.0.0.255 host {{ ad_server }} eq 636
+ permit tcp {{ tenant.user_subnet }} 0.0.0.255 host {{ ad_server }} eq 3268
+{% endif %}
+ remark Deny cross-tenant traffic
+{% for other in mission_tenants if other.index != tenant.index %}
+{% if other.user_subnet %}
+ deny ip {{ tenant.user_subnet }} 0.0.0.255 {{ other.user_subnet }} 0.0.0.255
+ deny ip {{ tenant.user_subnet }} 0.0.0.255 {{ other.apps_subnet }} 0.0.0.255
+ deny ip {{ tenant.user_subnet }} 0.0.0.255 {{ other.data_subnet }} 0.0.0.255
+{% endif %}
+{% endfor %}
+ permit ip {{ tenant.user_subnet }} 0.0.0.255 any
+ permit ip {{ tenant.apps_subnet }} 0.0.0.255 any
+ permit ip {{ tenant.data_subnet }} 0.0.0.255 any
+!
+{% endfor %}
+!
+! Apply ACLs to mission SVIs
+{% for tenant in mission_tenants %}
+interface Vlan{{ tenant.user_vlan }}
+ ip access-group ACL_MISSION{{ tenant.index }}_EGRESS out
+!
+{% endfor %}
+!
+! ============================================================
+!  Physical Interfaces — from NetBox or defaults
+! ============================================================
+!
+{% include "switches/common/interfaces.j2" %}
+!
+{% include "switches/common/security.j2" %}
 !
 end

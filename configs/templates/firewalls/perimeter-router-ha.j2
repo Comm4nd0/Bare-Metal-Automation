@@ -1,0 +1,68 @@
+!
+! ============================================================
+!  BMA — {{ hostname }}
+!  Role  : Perimeter Router — HA pair (HSRP on LAN, GLBP on WAN)
+!  Serial: {{ serial }}
+!  Site  : {{ site_slug | upper }}
+!
+!  Extends perimeter-router.j2 with:
+!    - HSRP v2 on inside sub-interfaces
+!    - Stateful NAT HA (ip nat stateful)
+!    - Failover track on WAN interface
+!
+!  Additional context variables:
+!    ha_role          str   "primary" | "secondary"
+!    hsrp_priority    int   110 (primary) / 100 (secondary)
+!    ha_peer_ip       str   HA peer management IP (for NAT state sync)
+! ============================================================
+!
+{% set ha_role = ha_role | default("primary") %}
+{% set hsrp_priority = hsrp_priority | default(110 if ha_role == "primary" else 100) %}
+!
+{% include "firewalls/perimeter-router.j2" %}
+!
+! ============================================================
+!  HA additions — HSRP on inside sub-interfaces
+! ============================================================
+!
+{% for iface in interfaces if 'inside' in iface.description | lower or 'core' in iface.description | lower %}
+!
+! HSRP on MGMT sub-interface
+interface {{ iface.name }}.100
+ standby version 2
+ standby 1 ip {{ hsrp_vip_inside | default("10.0.100.1") }}
+ standby 1 priority {{ hsrp_priority }}
+ standby 1 preempt delay minimum 30
+ standby 1 authentication md5 key-string {{ hsrp_key }}
+!
+{% for tenant in mission_tenants %}
+interface {{ iface.name }}.{{ tenant.user_vlan }}
+ standby version 2
+ standby {{ 100 + tenant.index }} ip {{ tenant.user_gateway | replace('.1', '.254') | default('') }}
+ standby {{ 100 + tenant.index }} priority {{ hsrp_priority }}
+ standby {{ 100 + tenant.index }} preempt delay minimum 30
+ standby {{ 100 + tenant.index }} authentication md5 key-string {{ hsrp_key }}
+!
+{% endfor %}
+{% endfor %}
+!
+! ── Stateful NAT HA ──────────────────────────────────────────
+{% if ha_peer_ip %}
+ip nat stateful id 1
+{% if ha_role == "primary" %}
+ primary {{ mgmt_ip }}
+ peer {{ ha_peer_ip }}
+{% else %}
+ backup
+ primary {{ ha_peer_ip }}
+ peer {{ mgmt_ip }}
+{% endif %}
+ mapping-id 1
+{% endif %}
+!
+! ── WAN uplink tracking ───────────────────────────────────────
+{% for iface in interfaces if 'outside' in iface.description | lower or 'wan' in iface.description | lower %}
+track 10 interface {{ iface.name }} line-protocol
+{% endfor %}
+!
+end
