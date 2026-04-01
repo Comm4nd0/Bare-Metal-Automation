@@ -38,8 +38,16 @@ def _run_deployment(
     try:
         close_old_connections()
 
-        from bare_metal_automation.dashboard.models import Deployment, DeploymentLog
+        from bare_metal_automation.dashboard.events import (
+            deployment_log,
+            device_status_changed,
+            phase_completed,
+            phase_started,
+            topology_updated,
+        )
+        from bare_metal_automation.dashboard.models import Deployment, DeploymentLog, Device
         from bare_metal_automation.inventory import load_inventory
+        from bare_metal_automation.models import DiscoveredDevice
         from bare_metal_automation.orchestrator import Orchestrator
 
         # Create or find the dashboard ORM record
@@ -73,7 +81,7 @@ def _run_deployment(
 
         _deployment_id = dep.pk
 
-        # Phase change callback — keeps the dashboard ORM in sync
+        # ── Phase change callback ─────────────────────────────────────────
         def _on_phase_change(phase_value: str) -> None:
             close_old_connections()
             Deployment.objects.filter(pk=dep.pk).update(phase=phase_value)
@@ -83,8 +91,75 @@ def _run_deployment(
                 phase=phase_value,
                 message=f"Phase: {phase_value}",
             )
+            phase_started(dep.pk, phase_value)
+            deployment_log(dep.pk, "INFO", f"Phase started: {phase_value}", phase_value)
+
+        # ── Device discovered callback ────────────────────────────────────
+        def _on_device_discovered(device: DiscoveredDevice) -> None:
+            if device.serial is None:
+                return
+            close_old_connections()
+            try:
+                Device.objects.update_or_create(
+                    deployment=dep,
+                    serial=device.serial,
+                    defaults={
+                        "ip": device.ip,
+                        "mac": device.mac or "",
+                        "platform": device.device_platform or "",
+                        "hostname": device.hostname or "",
+                        "intended_hostname": device.intended_hostname or "",
+                        "role": device.role or "",
+                        "state": device.state.value,
+                        "bfs_depth": device.bfs_depth,
+                        "config_order": device.config_order,
+                    },
+                )
+                device_status_changed(
+                    dep.pk,
+                    device.serial,
+                    device.intended_hostname or device.hostname or device.ip,
+                    device.state.value,
+                    "Device discovered",
+                )
+            except Exception as e:
+                logger.warning(f"Failed to create Device record for {device.serial}: {e}")
+
+        # ── Device state change callback ──────────────────────────────────
+        def _on_device_change(device: DiscoveredDevice, message: str = "") -> None:
+            if device.serial is None:
+                return
+            close_old_connections()
+            hostname = device.intended_hostname or device.hostname or device.ip
+            try:
+                Device.objects.filter(
+                    deployment=dep, serial=device.serial
+                ).update(
+                    state=device.state.value,
+                    bfs_depth=device.bfs_depth,
+                    config_order=device.config_order,
+                )
+                DeploymentLog.objects.create(
+                    deployment=dep,
+                    level="INFO",
+                    phase=dep.phase,
+                    message=f"{hostname}: {message or device.state.value}",
+                )
+                device_status_changed(
+                    dep.pk,
+                    device.serial,
+                    hostname,
+                    device.state.value,
+                    message,
+                )
+            except Exception as e:
+                logger.warning(
+                    f"Failed to update Device record for {device.serial}: {e}"
+                )
 
         orch.on_phase_change = _on_phase_change
+        orch.on_device_discovered = _on_device_discovered
+        orch.on_device_change = _on_device_change
 
         # Log start/resume
         DeploymentLog.objects.create(
