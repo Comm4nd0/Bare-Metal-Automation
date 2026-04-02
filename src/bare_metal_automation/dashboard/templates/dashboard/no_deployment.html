@@ -51,6 +51,20 @@
         </div>
         {% endif %}
 
+        <!-- Validate Inventory -->
+        <div class="card bg-body-secondary mt-3 text-start">
+            <div class="card-body">
+                <h6 class="card-title"><i class="bi bi-clipboard-check"></i> Validate Inventory</h6>
+                <p class="mb-2 text-secondary small">
+                    Review the inventory data (devices, roles, platforms, network settings)
+                    and run validation checks before starting a deployment.
+                </p>
+                <a href="{% url 'validate-inventory' %}" class="btn btn-outline-primary">
+                    <i class="bi bi-clipboard-check"></i> Validate Inventory
+                </a>
+            </div>
+        </div>
+
         <!-- Start Deployment -->
         <div class="card bg-body-secondary mt-3 text-start">
             <div class="card-body">

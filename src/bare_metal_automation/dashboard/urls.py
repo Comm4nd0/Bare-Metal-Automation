@@ -11,6 +11,8 @@ urlpatterns = [
     path("deployments/<int:pk>/", views.deployment_detail, name="deployment-detail"),
     path("devices/<int:pk>/", views.device_detail, name="device-detail"),
 
+    path("validate/", views.validate_inventory_page, name="validate-inventory"),
+
     # ── Read API ────────────────────────────────────────────────────────────
     path("api/status/", views.api_status, name="api-status"),
     path("api/devices/<int:pk>/status/", views.api_device_status, name="api-device-status"),
@@ -34,6 +36,9 @@ urlpatterns = [
         views.api_add_cabling_results,
         name="api-add-cabling-results",
     ),
+
+    # ── Inventory Validation API ──────────────────────────────────────────────
+    path("api/inventory/validate/", views.api_validate_inventory, name="api-validate-inventory"),
 
     # ── Logs API (GET to read, POST to add) ─────────────────────────────────
     path(

@@ -8,6 +8,7 @@ from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_GET, require_http_methods, require_POST
 
 from .deployment import deployment_status, resume_deployment, start_deployment, stop_deployment
+from .inventory_validation import validate_inventory
 from .models import CablingResult, Deployment, DeploymentLog, Device
 from .prepare import prepare_status, start_prepare, stop_prepare
 from .rollback import resume_rollback, rollback_status, start_rollback, stop_rollback
@@ -75,6 +76,11 @@ def device_detail(request, pk):
         "device": device,
         "cabling_results": cabling_results,
     })
+
+
+def validate_inventory_page(request):
+    """Inventory validation page — review data before deployment."""
+    return render(request, "dashboard/validate_inventory.html")
 
 
 def deployment_list(request):
@@ -467,6 +473,23 @@ def api_services(request):
             for s in services
         ]
     })
+
+
+# ── Inventory Validation API ────────────────────────────────────────────────
+
+
+@require_GET
+def api_validate_inventory(request):
+    """GET /api/inventory/validate/ — validate the current inventory file."""
+    from pathlib import Path
+
+    from django.conf import settings as django_settings
+
+    inventory_path = Path(
+        getattr(django_settings, "BMA_INVENTORY_PATH", "configs/inventory/inventory.yaml")
+    )
+    report = validate_inventory(inventory_path)
+    return JsonResponse(report.to_dict())
 
 
 # ── Deployment Control API ──────────────────────────────────────────────────

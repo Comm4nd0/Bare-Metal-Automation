@@ -1,0 +1,317 @@
+{% extends "dashboard/base.html" %}
+{% block title %}Validate Inventory — Bare Metal Automation{% endblock %}
+
+{% block content %}
+<div class="row mb-4">
+    <div class="col">
+        <div class="d-flex align-items-center gap-3">
+            <h3 class="mb-0"><i class="bi bi-clipboard-check"></i> Validate Inventory</h3>
+            <button class="btn btn-sm btn-outline-primary" onclick="runValidation()" id="btn-revalidate">
+                <i class="bi bi-arrow-repeat"></i> Re-validate
+            </button>
+            <span id="validation-status" class="small text-secondary"></span>
+        </div>
+        <p class="text-secondary small mt-1 mb-0">
+            Review the inventory data before starting a deployment.
+        </p>
+    </div>
+</div>
+
+<!-- Loading spinner -->
+<div id="loading" class="text-center py-5">
+    <div class="spinner-border text-primary" role="status"></div>
+    <p class="text-secondary mt-2">Validating inventory...</p>
+</div>
+
+<!-- Overall result banner -->
+<div id="result-banner" class="d-none"></div>
+
+<!-- Validation Checks -->
+<div id="checks-section" class="d-none">
+    <div class="row mb-4">
+        <div class="col">
+            <div class="card bg-body-secondary">
+                <div class="card-header">
+                    <i class="bi bi-shield-check"></i> Validation Checks
+                </div>
+                <div class="card-body p-0">
+                    <table class="table table-dark table-hover mb-0">
+                        <thead>
+                            <tr>
+                                <th style="width:40px;"></th>
+                                <th>Check</th>
+                                <th>Result</th>
+                                <th></th>
+                            </tr>
+                        </thead>
+                        <tbody id="checks-body"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Inventory Summary -->
+<div id="summary-section" class="d-none">
+    <div class="row g-3 mb-4">
+        <div class="col-md-3">
+            <div class="card bg-body-secondary h-100">
+                <div class="card-body text-center">
+                    <div class="fw-bold" id="inv-name">—</div>
+                    <div class="text-secondary small">Deployment Name</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card bg-body-secondary h-100">
+                <div class="card-body text-center">
+                    <div class="fw-bold" id="inv-subnet">—</div>
+                    <div class="text-secondary small">Bootstrap Subnet</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card bg-body-secondary h-100">
+                <div class="card-body text-center">
+                    <div class="fw-bold" id="inv-laptop">—</div>
+                    <div class="text-secondary small">Laptop IP</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card bg-body-secondary h-100">
+                <div class="card-body text-center">
+                    <div class="fw-bold" id="inv-vlan">—</div>
+                    <div class="text-secondary small">Management VLAN</div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Devices Table -->
+<div id="devices-section" class="d-none">
+    <div class="row mb-4">
+        <div class="col">
+            <div class="card bg-body-secondary">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <span><i class="bi bi-hdd-rack"></i> Devices</span>
+                    <span class="badge bg-secondary" id="device-count">0</span>
+                </div>
+                <div class="card-body p-0">
+                    <table class="table table-dark table-hover mb-0">
+                        <thead>
+                            <tr>
+                                <th>Serial</th>
+                                <th>Hostname</th>
+                                <th>Role</th>
+                                <th>Platform</th>
+                                <th>Template</th>
+                                <th>Firmware</th>
+                                <th>Status</th>
+                            </tr>
+                        </thead>
+                        <tbody id="devices-body"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Deploy button -->
+<div id="deploy-section" class="d-none">
+    <div class="row mb-4">
+        <div class="col text-center">
+            <button class="btn btn-success btn-lg" onclick="startDeployment()" id="btn-deploy">
+                <i class="bi bi-play-fill"></i> Start Deployment
+            </button>
+            <span id="deploy-status" class="ms-2 small text-secondary"></span>
+        </div>
+    </div>
+</div>
+
+<!-- Error state -->
+<div id="error-section" class="d-none">
+    <div class="alert alert-danger">
+        <i class="bi bi-exclamation-triangle-fill me-2"></i>
+        <span id="error-message"></span>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+const VALIDATE_URL = "{% url 'api-validate-inventory' %}";
+const STATUS_ICONS = {
+    pass: '<i class="bi bi-check-circle-fill text-success"></i>',
+    fail: '<i class="bi bi-x-circle-fill text-danger"></i>',
+    warning: '<i class="bi bi-exclamation-triangle-fill text-warning"></i>',
+};
+const STATUS_BADGE = {
+    pass: 'bg-success',
+    fail: 'bg-danger',
+    warning: 'bg-warning text-dark',
+};
+
+function runValidation() {
+    // Reset UI
+    document.getElementById('loading').classList.remove('d-none');
+    document.getElementById('result-banner').classList.add('d-none');
+    document.getElementById('checks-section').classList.add('d-none');
+    document.getElementById('summary-section').classList.add('d-none');
+    document.getElementById('devices-section').classList.add('d-none');
+    document.getElementById('deploy-section').classList.add('d-none');
+    document.getElementById('error-section').classList.add('d-none');
+    document.getElementById('btn-revalidate').disabled = true;
+
+    fetch(VALIDATE_URL)
+        .then(r => r.json())
+        .then(data => {
+            document.getElementById('loading').classList.add('d-none');
+            document.getElementById('btn-revalidate').disabled = false;
+            renderResults(data);
+        })
+        .catch(err => {
+            document.getElementById('loading').classList.add('d-none');
+            document.getElementById('btn-revalidate').disabled = false;
+            document.getElementById('error-section').classList.remove('d-none');
+            document.getElementById('error-message').textContent =
+                'Failed to reach validation API: ' + err.message;
+        });
+}
+
+function renderResults(data) {
+    // Overall banner
+    const banner = document.getElementById('result-banner');
+    banner.classList.remove('d-none');
+    if (data.passed) {
+        banner.innerHTML = '<div class="alert alert-success mb-4">' +
+            '<i class="bi bi-check-circle-fill me-2"></i>' +
+            '<strong>Validation Passed</strong> — inventory is ready for deployment.</div>';
+    } else {
+        banner.innerHTML = '<div class="alert alert-danger mb-4">' +
+            '<i class="bi bi-x-circle-fill me-2"></i>' +
+            '<strong>Validation Failed</strong> — fix the issues below before deploying.</div>';
+    }
+
+    // Checks table
+    const checksBody = document.getElementById('checks-body');
+    checksBody.innerHTML = '';
+    data.checks.forEach((check, idx) => {
+        let detailsHtml = '';
+        if (check.details && check.details.length > 0) {
+            const detailItems = check.details.map(d =>
+                '<li class="small text-secondary">' + escapeHtml(d) + '</li>'
+            ).join('');
+            detailsHtml = '<tr id="detail-' + idx + '" class="d-none">' +
+                '<td colspan="4" class="ps-5 py-1"><ul class="mb-0">' +
+                detailItems + '</ul></td></tr>';
+        }
+        const expandBtn = check.details && check.details.length > 0
+            ? '<button class="btn btn-sm btn-link p-0" onclick="toggleDetail(' + idx + ')">' +
+              '<i class="bi bi-chevron-down"></i></button>'
+            : '';
+
+        checksBody.innerHTML += '<tr>' +
+            '<td>' + (STATUS_ICONS[check.status] || '') + '</td>' +
+            '<td class="fw-semibold">' + escapeHtml(check.name) + '</td>' +
+            '<td>' + escapeHtml(check.message) + '</td>' +
+            '<td>' + expandBtn + '</td>' +
+            '</tr>' + detailsHtml;
+    });
+    document.getElementById('checks-section').classList.remove('d-none');
+
+    // Summary cards
+    if (data.inventory_data) {
+        document.getElementById('inv-name').textContent = data.inventory_data.name || '—';
+        document.getElementById('inv-subnet').textContent = data.inventory_data.bootstrap_subnet || '—';
+        document.getElementById('inv-laptop').textContent = data.inventory_data.laptop_ip || '—';
+        document.getElementById('inv-vlan').textContent = data.inventory_data.management_vlan || '—';
+        document.getElementById('summary-section').classList.remove('d-none');
+    }
+
+    // Devices table
+    if (data.devices && data.devices.length > 0) {
+        const devicesBody = document.getElementById('devices-body');
+        devicesBody.innerHTML = '';
+        document.getElementById('device-count').textContent = data.devices.length;
+
+        data.devices.forEach(dev => {
+            const statusBadge = dev.status === 'pass'
+                ? '<span class="badge bg-success">OK</span>'
+                : '<span class="badge bg-danger">Issue</span>';
+            const issueTooltip = dev.issues && dev.issues.length > 0
+                ? ' title="' + escapeHtml(dev.issues.join('; ')) + '"'
+                : '';
+            devicesBody.innerHTML += '<tr' + issueTooltip + '>' +
+                '<td><code>' + escapeHtml(dev.serial) + '</code></td>' +
+                '<td>' + escapeHtml(dev.hostname) + '</td>' +
+                '<td>' + escapeHtml(dev.role) + '</td>' +
+                '<td><code>' + escapeHtml(dev.platform) + '</code></td>' +
+                '<td class="small">' + escapeHtml(dev.template || '—') + '</td>' +
+                '<td class="small">' + escapeHtml(dev.firmware_image || '—') + '</td>' +
+                '<td>' + statusBadge + '</td>' +
+                '</tr>';
+        });
+        document.getElementById('devices-section').classList.remove('d-none');
+    }
+
+    // Deploy button (only if passed)
+    if (data.passed) {
+        document.getElementById('deploy-section').classList.remove('d-none');
+    }
+}
+
+function toggleDetail(idx) {
+    const row = document.getElementById('detail-' + idx);
+    if (row) row.classList.toggle('d-none');
+}
+
+function escapeHtml(str) {
+    if (!str) return '';
+    const div = document.createElement('div');
+    div.textContent = str;
+    return div.innerHTML;
+}
+
+// Deployment control (reused from no_deployment.html pattern)
+function startDeployment() {
+    const btn = document.getElementById('btn-deploy');
+    const status = document.getElementById('deploy-status');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> Starting...';
+    status.textContent = '';
+
+    fetch("{% url 'api-deployment-start' %}", {method: 'POST'})
+        .then(r => r.json().then(data => ({status: r.status, data})))
+        .then(({status: code, data}) => {
+            if (data.status === 'started') {
+                status.textContent = 'Deployment started — redirecting...';
+                status.className = 'ms-2 small text-success';
+                setTimeout(() => window.location.href = '/', 1500);
+            } else if (data.status === 'simulation_running') {
+                status.textContent = 'Stop the simulation first.';
+                status.className = 'ms-2 small text-warning';
+                btn.disabled = false;
+                btn.innerHTML = '<i class="bi bi-play-fill"></i> Start Deployment';
+            } else {
+                status.textContent = data.status;
+                status.className = 'ms-2 small text-warning';
+                btn.disabled = false;
+                btn.innerHTML = '<i class="bi bi-play-fill"></i> Start Deployment';
+            }
+        })
+        .catch(() => {
+            status.textContent = 'Failed to start deployment.';
+            status.className = 'ms-2 small text-danger';
+            btn.disabled = false;
+            btn.innerHTML = '<i class="bi bi-play-fill"></i> Start Deployment';
+        });
+}
+
+// Run validation on page load
+document.addEventListener('DOMContentLoaded', runValidation);
+</script>
+{% endblock %}
