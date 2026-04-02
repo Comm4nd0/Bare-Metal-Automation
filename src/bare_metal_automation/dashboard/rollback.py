@@ -147,7 +147,9 @@ def _run_rollback(resume: bool = False) -> None:
                     message="Rollback crashed — see server logs",
                 )
             except Deployment.DoesNotExist:
-                pass
+                logger.debug(
+                    "Deployment %s gone, skipping crash log", _rollback_id,
+                )
     finally:
         _rollback_id = None
         close_old_connections()

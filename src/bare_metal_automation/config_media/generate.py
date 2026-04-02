@@ -212,7 +212,7 @@ def main(
         try:
             config_context = nb_client.get_config_context(device.id)
             ip_addresses = nb_client.get_device_ips(device.id)
-            interfaces: list[dict[str, Any]] = []  # TODO: fetch via nb_client.get_interfaces
+            interfaces: list[dict[str, Any]] = nb_client.get_interfaces(device.id)
             vlans_raw = nb_client.get_vlans_by_tag(tag.lower())
 
             template_path, ctx = ConfigRenderer.build_context(

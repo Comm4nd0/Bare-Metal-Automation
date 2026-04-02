@@ -652,11 +652,12 @@ Implemented the full BMA Engine Sprint 4, filling in module stubs and adding new
 - **Milestone 2 (Cabling Validation)**: ~~Intent parser~~, ~~cabling diff engine~~, ~~adaptation engine~~, ~~report generator~~
 - **Milestone 3 (Network Config)**: ~~Config renderer~~, ~~dead man's switch~~, ~~post-config validator~~, ~~router templates~~, Ansible playbooks, rollback handler
 - **Milestone 4 (Server Provisioning)**: ~~Redfish client~~, ~~iLO operations~~, ~~firmware update~~, ~~BIOS config~~, ~~virtual media~~, ~~OS installer~~, ~~PXE fallback~~, ~~server config templates (iLO + BIOS)~~
-- **Milestone 5 (Dashboard)**: ~~WebSocket events (server-side)~~, D3.js topology renderer (frontend JS), log viewer enhancements, ~~deploy button~~, ~~simulation mode~~
-- **Milestone 6 (Hardening)**: Serial console fallback, retry logic, ~~state persistence~~, multi-NIC, LLDP
+- **Milestone 5 (Dashboard)**: ~~WebSocket events (server-side)~~, D3.js topology renderer (frontend JS), log viewer enhancements, ~~deploy button~~, ~~simulation mode~~, **dashboard authentication** (critical, not yet implemented)
+- **Milestone 6 (Hardening)**: Serial console fallback, retry logic, ~~state persistence~~, multi-NIC, LLDP, config drift detection
 - **CI/CD**: ~~GitHub Actions workflow~~, ~~pre-commit hooks~~, ~~Makefile~~, ~~Dockerfile + docker-compose~~
 - **VMware sprint**: vCenter teardown, NSX teardown, VM teardown (guarded with `NotImplementedError` in `factory_reset/reset.py`)
 - **Integration tests**: End-to-end pipeline tests with mock hardware
+- **Security**: ~~XSS fixes~~, ~~CSRF protection for UI endpoints~~, ~~API input validation~~, dashboard authentication, API rate limiting
 
 ### Session 12 — Sprint 1: NetBox Site Lifecycle Foundation
 
@@ -855,3 +856,44 @@ src/bare_metal_automation/
 - **Server** (HPE): DL325/DL360/DL380 Gen10 servers (iLO 5 Redfish API)
 - **Appliance** (Meinberg): LANTIME NTP appliances (REST API)
 - New vendors can be added by implementing a driver ABC and registering with `DriverRegistry` — no core code changes needed
+
+### Session 16 — Codebase Review & Security Audit
+
+**Date**: 2026-04-02
+**Branch**: `claude/codebase-review-audit-T8aZA`
+
+**What was done**:
+- Comprehensive codebase audit covering security, bugs, missing features, and code quality
+- **Security fixes**:
+  - Fixed stored XSS vulnerability in `index.html` — deployment name injected into JS without escaping (added `|escapejs` filter)
+  - Fixed DOM-based XSS in service status rendering — raw template literals replaced with `escapeHtml()` helper
+  - Removed `@csrf_exempt` from 10 browser-facing endpoints (deployment/rollback/simulation/prepare control), added CSRF token support via meta tag and `postWithCsrf()` JS helper
+  - Kept `@csrf_exempt` on 7 machine-to-machine automation API endpoints (device registration, cabling results, logs, firmware sync)
+- **Input validation added** to all write API endpoints:
+  - Phase values validated against `Deployment.PHASE_CHOICES`
+  - Device state validated against `Device.state` choices
+  - Device role validated against `Device.role` choices
+  - Cabling status validated against `CablingResult.STATUS_CHOICES`
+  - Log level validated against standard Python log levels
+  - Log message length capped at 10,000 characters
+- **Bug fix**: `api_update_device_by_serial()` field whitelist was missing `"serial"` and `"mac"` fields, inconsistent with `api_update_device()` — now consistent
+- **Silent exception handling**: Added `logger.warning()` / `logger.debug()` to bare `pass` blocks in rollback orchestrator, provisioner polling loops, and dashboard deployment/rollback crash handlers
+- **NetBox `get_interfaces()` method**: Added to `netbox/client.py` and wired up in `config_media/generate.py` (was a TODO placeholder)
+- **ROADMAP.md updated**: Marked completed tasks, fixed "Flask" → "Django", added "Known Incomplete Features" section
+
+**Key decisions**:
+- Dashboard authentication/authorization was flagged as critical but NOT implemented — too large for this session, documented as known gap
+- CSRF split: browser-triggered endpoints now require CSRF token; automation API endpoints remain exempt for CLI/orchestrator compatibility
+- URL namespace not added — `urls.py` is the ROOT_URLCONF, so `app_name` would break existing `{% url %}` tags
+
+**Files modified**:
+- `src/bare_metal_automation/dashboard/templates/dashboard/index.html` — XSS fixes, CSRF fetch calls
+- `src/bare_metal_automation/dashboard/templates/dashboard/base.html` — CSRF meta tag, `postWithCsrf()` helper
+- `src/bare_metal_automation/dashboard/views.py` — input validation, CSRF exempt removal
+- `src/bare_metal_automation/netbox/client.py` — added `get_interfaces()` method
+- `src/bare_metal_automation/config_media/generate.py` — wired up interface fetching
+- `src/bare_metal_automation/rollback/orchestrator.py` — added logging to bare pass blocks
+- `src/bare_metal_automation/provisioner/server.py` — added debug logging to polling loops
+- `src/bare_metal_automation/dashboard/deployment.py` — added debug logging
+- `src/bare_metal_automation/dashboard/rollback.py` — added debug logging
+- `docs/ROADMAP.md` — updated completion status, fixed Flask→Django, added known gaps

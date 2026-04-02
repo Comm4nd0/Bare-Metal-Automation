@@ -14,6 +14,14 @@ from .prepare import prepare_status, start_prepare, stop_prepare
 from .rollback import resume_rollback, rollback_status, start_rollback, stop_rollback
 from .simulation import simulation_status, start_simulation, stop_simulation
 
+# ── Valid choice sets for input validation ─────────────────────────────────
+_VALID_PHASES = {c[0] for c in Deployment.phase.field.choices}
+_VALID_DEVICE_STATES = {c[0] for c in Device.state.field.choices}
+_VALID_DEVICE_ROLES = {c[0] for c in Device.role.field.choices}
+_VALID_CABLING_STATUSES = {c[0] for c in CablingResult.status.field.choices}
+_VALID_LOG_LEVELS = {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}
+_MAX_LOG_MESSAGE_LENGTH = 10000
+
 # ── HTML Views ──────────────────────────────────────────────────────────────
 
 def dashboard(request):
@@ -220,6 +228,13 @@ def api_update_deployment(request, pk):
     if err:
         return err
 
+    # Validate phase value if provided
+    if "phase" in data and data["phase"] not in _VALID_PHASES:
+        return JsonResponse(
+            {"error": f"Invalid phase '{data['phase']}'"},
+            status=400,
+        )
+
     allowed_fields = {"phase", "name", "bootstrap_subnet", "laptop_ip", "management_vlan"}
     for field_name in allowed_fields:
         if field_name in data:
@@ -263,6 +278,14 @@ def api_add_device(request, deployment_pk):
     ip = data.get("ip")
     if not ip:
         return JsonResponse({"error": "ip is required"}, status=400)
+
+    # Validate state and role if provided
+    state = data.get("state", "unknown")
+    if state not in _VALID_DEVICE_STATES:
+        return JsonResponse({"error": f"Invalid state '{state}'"}, status=400)
+    role = data.get("role", "")
+    if role and role not in _VALID_DEVICE_ROLES:
+        return JsonResponse({"error": f"Invalid role '{role}'"}, status=400)
 
     device, created = Device.objects.update_or_create(
         deployment=deployment,
@@ -337,9 +360,15 @@ def api_update_device_by_serial(request, deployment_pk, serial):
     if err:
         return err
 
+    # Validate state and role if provided
+    if "state" in data and data["state"] not in _VALID_DEVICE_STATES:
+        return JsonResponse({"error": f"Invalid state '{data['state']}'"}, status=400)
+    if "role" in data and data["role"] and data["role"] not in _VALID_DEVICE_ROLES:
+        return JsonResponse({"error": f"Invalid role '{data['role']}'"}, status=400)
+
     allowed_fields = {
         "state", "hostname", "intended_hostname", "role", "platform",
-        "bfs_depth", "config_order", "management_ip",
+        "serial", "mac", "bfs_depth", "config_order", "management_ip",
     }
     for field_name in allowed_fields:
         if field_name in data:
@@ -386,6 +415,15 @@ def api_add_cabling_results(request, device_pk):
     # Clear existing results for this device and replace
     device.cabling_results.all().delete()
 
+    # Validate all status values before creating any records
+    for r in results:
+        status = r.get("status", "missing")
+        if status not in _VALID_CABLING_STATUSES:
+            return JsonResponse(
+                {"error": f"Invalid cabling status '{status}'"},
+                status=400,
+            )
+
     created = []
     for r in results:
         cr = CablingResult.objects.create(
@@ -426,10 +464,19 @@ def api_logs(request, deployment_pk):
         message = data.get("message")
         if not message:
             return JsonResponse({"error": "message is required"}, status=400)
+        if len(message) > _MAX_LOG_MESSAGE_LENGTH:
+            return JsonResponse(
+                {"error": f"message exceeds maximum length of {_MAX_LOG_MESSAGE_LENGTH}"},
+                status=400,
+            )
+
+        level = data.get("level", "INFO").upper()
+        if level not in _VALID_LOG_LEVELS:
+            return JsonResponse({"error": f"Invalid log level '{level}'"}, status=400)
 
         log = DeploymentLog.objects.create(
             deployment=deployment,
-            level=data.get("level", "INFO"),
+            level=level,
             phase=data.get("phase", ""),
             message=message,
         )
@@ -494,7 +541,6 @@ def api_validate_inventory(request):
 
 # ── Deployment Control API ──────────────────────────────────────────────────
 
-@csrf_exempt
 @require_POST
 def api_start_deployment(request):
     """POST /api/deployment/start/ — start a real deployment."""
@@ -503,7 +549,6 @@ def api_start_deployment(request):
     return JsonResponse(result, status=status_code)
 
 
-@csrf_exempt
 @require_POST
 def api_stop_deployment(request):
     """POST /api/deployment/stop/ — stop after current phase."""
@@ -511,7 +556,6 @@ def api_stop_deployment(request):
     return JsonResponse(result)
 
 
-@csrf_exempt
 @require_POST
 def api_resume_deployment(request):
     """POST /api/deployment/resume/ — resume from last checkpoint."""
@@ -528,7 +572,6 @@ def api_deployment_control_status(request):
 
 # ── Simulation API ─────────────────────────────────────────────────────────
 
-@csrf_exempt
 @require_POST
 def api_start_simulation(request):
     """POST /api/simulation/start/ — start a simulated deployment."""
@@ -541,7 +584,6 @@ def api_start_simulation(request):
     return JsonResponse(result, status=status_code)
 
 
-@csrf_exempt
 @require_POST
 def api_stop_simulation(request):
     """POST /api/simulation/stop/ — stop the running simulation."""
@@ -558,7 +600,6 @@ def api_simulation_status(request):
 # ── Rollback API ──────────────────────────────────────────────────────────
 
 
-@csrf_exempt
 @require_POST
 def api_start_rollback(request):
     """POST /api/rollback/start/ — factory reset all devices."""
@@ -567,7 +608,6 @@ def api_start_rollback(request):
     return JsonResponse(result, status=status_code)
 
 
-@csrf_exempt
 @require_POST
 def api_stop_rollback(request):
     """POST /api/rollback/stop/ — stop rollback after current phase."""
@@ -575,7 +615,6 @@ def api_stop_rollback(request):
     return JsonResponse(result)
 
 
-@csrf_exempt
 @require_POST
 def api_resume_rollback(request):
     """POST /api/rollback/resume/ — resume from rollback checkpoint."""
@@ -628,7 +667,6 @@ def api_prepare_nodes(request):
         }, status=500)
 
 
-@csrf_exempt
 @require_POST
 def api_start_prepare(request):
     """POST /api/prepare/start/ — begin build preparation."""
@@ -646,7 +684,6 @@ def api_start_prepare(request):
     return JsonResponse(result, status=status_code)
 
 
-@csrf_exempt
 @require_POST
 def api_stop_prepare(request):
     """POST /api/prepare/stop/ — cancel preparation."""

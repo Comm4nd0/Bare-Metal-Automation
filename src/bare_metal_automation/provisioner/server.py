@@ -711,7 +711,9 @@ class HPEServerProvisioner:
                         return True
 
             except Exception:
-                pass
+                logger.debug(
+                    "%s: OS install poll error, retrying", device.intended_hostname,
+                )
             time.sleep(POLL_INTERVAL)
 
         logger.warning(
@@ -727,6 +729,7 @@ class HPEServerProvisioner:
                 client.get(REDFISH_BASE)
                 return True
             except Exception:
+                logger.debug("iLO at %s not yet responsive, retrying", ip)
                 time.sleep(15)
 
         logger.warning(f"iLO at {ip} did not respond within {timeout}s")
@@ -758,7 +761,9 @@ class HPEServerProvisioner:
                     return False
 
             except Exception:
-                pass
+                logger.debug(
+                    "%s: %s poll error, retrying", device.intended_hostname, description,
+                )
             time.sleep(POLL_INTERVAL)
 
         logger.warning(

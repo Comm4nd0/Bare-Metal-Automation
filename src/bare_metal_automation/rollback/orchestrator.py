@@ -205,14 +205,14 @@ class RollbackOrchestrator:
                 try:
                     device.role = DeviceRole(role_val)
                 except ValueError:
-                    pass
+                    logger.warning("Unknown device role %r for %s", role_val, ip)
 
             platform_val = device_data.get("device_platform")
             if platform_val:
                 try:
                     device.device_platform = DevicePlatform(platform_val)
                 except ValueError:
-                    pass
+                    logger.warning("Unknown device platform %r for %s", platform_val, ip)
 
             self.devices[ip] = device
 
@@ -262,7 +262,7 @@ class RollbackOrchestrator:
                         result_data["state"],
                     )
                 except (ValueError, KeyError):
-                    pass
+                    logger.warning("Could not restore state for device %s from checkpoint", ip)
                 key = orch.devices[ip].serial or ip
                 orch.results[key] = result_data.get(
                     "reset_success", False,

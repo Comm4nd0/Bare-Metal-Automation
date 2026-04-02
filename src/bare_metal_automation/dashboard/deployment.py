@@ -207,7 +207,7 @@ def _run_deployment(
                     message="Deployment crashed — see server logs",
                 )
             except Deployment.DoesNotExist:
-                pass
+                logger.debug("Deployment %s no longer exists, skipping crash log", _deployment_id)
     finally:
         _deployment_id = None
         close_old_connections()

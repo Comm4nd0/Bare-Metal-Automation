@@ -192,6 +192,38 @@ class NetBoxClient:
                 f"Failed to fetch IPs for device {device_id}: {e}",
             ) from e
 
+    def get_interfaces(
+        self, device_id: int,
+    ) -> list[dict[str, Any]]:
+        """Return all interfaces for a device."""
+        try:
+            interfaces = list(
+                self.api.dcim.interfaces.filter(device_id=device_id),
+            )
+            return [
+                {
+                    "name": str(iface.name),
+                    "type": str(iface.type) if iface.type else "",
+                    "enabled": bool(iface.enabled),
+                    "description": iface.description or "",
+                    "mode": str(iface.mode) if iface.mode else "",
+                    "untagged_vlan": (
+                        {"vid": iface.untagged_vlan.vid}
+                        if iface.untagged_vlan
+                        else None
+                    ),
+                    "tagged_vlans": [
+                        {"vid": v.vid} for v in (iface.tagged_vlans or [])
+                    ],
+                    "lag": str(iface.lag) if iface.lag else "",
+                }
+                for iface in interfaces
+            ]
+        except Exception as e:
+            raise NetBoxConnectionError(
+                f"Failed to fetch interfaces for device {device_id}: {e}",
+            ) from e
+
     def get_prefixes_by_tag(
         self, tag: str,
     ) -> list[dict[str, Any]]:
