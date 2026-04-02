@@ -370,18 +370,28 @@
         unknown:  { css: "secondary", label: "unknown" },
     };
 
+    function escapeHtml(str) {
+        const div = document.createElement('div');
+        div.textContent = str;
+        return div.innerHTML;
+    }
+
     function renderServices(services) {
         const list = document.getElementById('services-list');
         if (!list) return;
         list.innerHTML = services.map(s => {
             const { css, label } = STATUS_COLOR[s.status] || STATUS_COLOR.unknown;
+            const safeName = escapeHtml(s.display_name || '');
+            const safeDetail = escapeHtml(s.detail || '');
+            const safeIcon = escapeHtml(s.icon || '');
+            const safeLabel = escapeHtml(label || '');
             return `<li class="list-group-item bg-transparent d-flex justify-content-between align-items-center py-2">
                 <span>
-                    <i class="bi ${s.icon} me-2 text-secondary"></i>
-                    <span class="fw-semibold">${s.display_name}</span>
-                    <span class="text-secondary small ms-2">${s.detail}</span>
+                    <i class="bi ${safeIcon} me-2 text-secondary"></i>
+                    <span class="fw-semibold">${safeName}</span>
+                    <span class="text-secondary small ms-2">${safeDetail}</span>
                 </span>
-                <span class="badge bg-${css}">${label}</span>
+                <span class="badge bg-${css}">${safeLabel}</span>
             </li>`;
         }).join('');
     }
@@ -401,7 +411,7 @@
 function startDeployment() {
     const status = document.getElementById('deploy-status');
     status.textContent = 'Starting...';
-    fetch("{% url 'api-deployment-start' %}", {method: 'POST'})
+    postWithCsrf("{% url 'api-deployment-start' %}")
         .then(r => r.json())
         .then(data => {
             if (data.status === 'started') {
@@ -425,7 +435,7 @@ function startDeployment() {
 function stopDeployment() {
     const status = document.getElementById('deploy-status');
     status.textContent = 'Stopping after current phase...';
-    fetch("{% url 'api-deployment-stop' %}", {method: 'POST'})
+    postWithCsrf("{% url 'api-deployment-stop' %}")
         .then(r => r.json())
         .then(data => {
             if (data.status === 'stopping') {
@@ -445,7 +455,7 @@ function stopDeployment() {
 function resumeDeployment() {
     const status = document.getElementById('deploy-status');
     status.textContent = 'Resuming...';
-    fetch("{% url 'api-deployment-resume' %}", {method: 'POST'})
+    postWithCsrf("{% url 'api-deployment-resume' %}")
         .then(r => r.json())
         .then(data => {
             if (data.status === 'resumed') {
@@ -467,7 +477,7 @@ function resumeDeployment() {
 }
 
 // Rollback control actions
-const DEPLOY_NAME = "{{ deployment.name }}";
+const DEPLOY_NAME = "{{ deployment.name|escapejs }}";
 
 function showRollbackModal() {
     const input = document.getElementById('rollback-confirm-input');
@@ -490,7 +500,7 @@ function startRollback() {
     status.textContent = 'Starting rollback...';
     status.className = 'small text-warning';
 
-    fetch("{% url 'api-rollback-start' %}", {method: 'POST'})
+    postWithCsrf("{% url 'api-rollback-start' %}")
         .then(r => r.json())
         .then(data => {
             if (data.status === 'started') {
@@ -511,7 +521,7 @@ function startRollback() {
 function stopRollback() {
     const status = document.getElementById('deploy-status');
     status.textContent = 'Stopping rollback...';
-    fetch("{% url 'api-rollback-stop' %}", {method: 'POST'})
+    postWithCsrf("{% url 'api-rollback-stop' %}")
         .then(r => r.json())
         .then(data => {
             if (data.status === 'stopping') {
@@ -531,7 +541,7 @@ function stopRollback() {
 function resumeRollback() {
     const status = document.getElementById('deploy-status');
     status.textContent = 'Resuming rollback...';
-    fetch("{% url 'api-rollback-resume' %}", {method: 'POST'})
+    postWithCsrf("{% url 'api-rollback-resume' %}")
         .then(r => r.json())
         .then(data => {
             if (data.status === 'resumed') {
