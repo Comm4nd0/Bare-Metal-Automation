@@ -21,7 +21,7 @@ set -euo pipefail
 
 # ── Defaults ────────────────────────────────────────────────────────────────
 
-NETBOX_VERSION="4.2"
+NETBOX_VERSION="4.2.3"
 NETBOX_DOMAIN="netbox.local"
 NETBOX_PORT="8080"
 SUPERUSER="admin"
@@ -174,7 +174,7 @@ cat > "${ENV_FILE}" <<EOF
 # NetBox
 NETBOX_VERSION=${NETBOX_VERSION}
 SECRET_KEY=${SECRET_KEY}
-ALLOWED_HOSTS=${NETBOX_DOMAIN} localhost 127.0.0.1
+ALLOWED_HOSTS="${NETBOX_DOMAIN} localhost 127.0.0.1"
 CORS_ORIGIN_ALLOW_ALL=true
 
 # Superuser
@@ -444,20 +444,20 @@ for name in manufacturers:
 
 # ── Device Roles ──
 roles = {
-    'core-switch':          {'color': '2196f3', 'vm_role': False},
-    'distribution-switch':  {'color': '4caf50', 'vm_role': False},
-    'access-switch':        {'color': '8bc34a', 'vm_role': False},
-    'wan-router':           {'color': 'ff9800', 'vm_role': False},
-    'distribution-router':  {'color': 'ffc107', 'vm_role': False},
-    'perimeter-firewall':   {'color': 'f44336', 'vm_role': False},
-    'compute-server':       {'color': '9c27b0', 'vm_role': False},
-    'ntp-server':           {'color': '607d8b', 'vm_role': False},
+    'core-switch':          {'color': '2196f3'},
+    'distribution-switch':  {'color': '4caf50'},
+    'access-switch':        {'color': '8bc34a'},
+    'wan-router':           {'color': 'ff9800'},
+    'distribution-router':  {'color': 'ffc107'},
+    'perimeter-firewall':   {'color': 'f44336'},
+    'compute-server':       {'color': '9c27b0'},
+    'ntp-server':           {'color': '607d8b'},
 }
 for slug, attrs in roles.items():
     name = slug.replace('-', ' ').title()
     obj, created = DeviceRole.objects.get_or_create(
         slug=slug,
-        defaults={'name': name, 'color': attrs['color'], 'vm_role': attrs['vm_role']},
+        defaults={'name': name, 'color': attrs['color']},
     )
     status = 'created' if created else 'exists'
     print(f'  Device Role: {name} ({status})')
@@ -498,7 +498,7 @@ for name, attrs in custom_fields.items():
         },
     )
     if created:
-        obj.content_types.add(device_ct)
+        obj.object_types.add(device_ct)
     status = 'created' if created else 'exists'
     print(f'  Custom Field: {attrs[\"label\"]} ({status})')
 
