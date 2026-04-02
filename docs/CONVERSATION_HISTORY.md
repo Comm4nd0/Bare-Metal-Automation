@@ -30,6 +30,21 @@ Bare Metal Automation is a zero-touch provisioning tool for bare-metal infrastru
 
 ## Session Log
 
+### Session — Review & Fix deploy_netbox.sh for NetBox 4.x Compatibility
+
+**Date**: 2026-04-02
+**Branch**: `claude/review-netbox-deploy-6VsK5`
+
+**What was done**:
+- Reviewed `scripts/deploy_netbox.sh` for correctness against NetBox 4.2
+- Fixed `CustomField.content_types` → `CustomField.object_types` (renamed in NetBox 4.0+)
+- Removed `vm_role` parameter from `DeviceRole` creation (field removed in NetBox 4.0+)
+- Changed default NetBox version from `4.2` to `4.2.3` (Docker image tags require full semver)
+- Quoted `ALLOWED_HOSTS` value in `.env` to prevent space-parsing issues in Docker Compose
+
+**Key decisions**:
+- Targeted fixes only for actual breaking issues; no unnecessary refactoring
+
 ### Session — Firmware Upgrade Testing Framework
 
 **Date**: 2026-04-01
