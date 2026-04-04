@@ -1,0 +1,6 @@
+---
+- name: Restart Veeam Backup Service
+  ansible.windows.win_service:
+    name: VeeamBackupSvc
+    state: restarted
+  listen: restart veeam

@@ -1,0 +1,156 @@
+---
+# Monitoring Server — Prometheus, Grafana, SNMP Exporter, Alert rules
+
+- name: Create prometheus system user
+  ansible.builtin.user:
+    name: prometheus
+    system: true
+    shell: /usr/sbin/nologin
+    create_home: false
+  become: true
+  tags: [monitoring, install]
+
+- name: Create prometheus directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: prometheus
+    group: prometheus
+    mode: "0755"
+  loop:
+    - /etc/prometheus
+    - /etc/prometheus/rules
+    - "{{ prometheus_data_dir }}"
+  become: true
+  tags: [monitoring, install]
+
+- name: Download and install Prometheus
+  ansible.builtin.unarchive:
+    src: "https://github.com/prometheus/prometheus/releases/download/v{{ prometheus_version }}/prometheus-{{ prometheus_version }}.linux-amd64.tar.gz"
+    dest: /tmp
+    remote_src: true
+    creates: "/tmp/prometheus-{{ prometheus_version }}.linux-amd64"
+  become: true
+  tags: [monitoring, install]
+
+- name: Copy Prometheus binaries
+  ansible.builtin.copy:
+    src: "/tmp/prometheus-{{ prometheus_version }}.linux-amd64/{{ item }}"
+    dest: "/usr/local/bin/{{ item }}"
+    mode: "0755"
+    remote_src: true
+  loop:
+    - prometheus
+    - promtool
+  become: true
+  tags: [monitoring, install]
+
+- name: Deploy Prometheus configuration
+  ansible.builtin.template:
+    src: prometheus.yml.j2
+    dest: /etc/prometheus/prometheus.yml
+    owner: prometheus
+    group: prometheus
+    mode: "0644"
+  notify: restart prometheus
+  become: true
+  tags: [monitoring, configure]
+
+- name: Deploy alert rules
+  ansible.builtin.template:
+    src: alert_rules.yml.j2
+    dest: /etc/prometheus/rules/bma_alerts.yml
+    owner: prometheus
+    group: prometheus
+    mode: "0644"
+  notify: restart prometheus
+  become: true
+  tags: [monitoring, alerts]
+
+- name: Deploy Prometheus systemd unit
+  ansible.builtin.template:
+    src: prometheus.service.j2
+    dest: /etc/systemd/system/prometheus.service
+    mode: "0644"
+  notify: restart prometheus
+  become: true
+  tags: [monitoring, install]
+
+- name: Enable and start Prometheus
+  ansible.builtin.systemd:
+    name: prometheus
+    enabled: true
+    state: started
+    daemon_reload: true
+  become: true
+  tags: [monitoring, install]
+
+- name: Install Grafana
+  ansible.builtin.apt:
+    deb: "https://dl.grafana.com/oss/release/grafana_{{ grafana_version }}_amd64.deb"
+    state: present
+  become: true
+  tags: [monitoring, grafana]
+
+- name: Configure Grafana
+  ansible.builtin.template:
+    src: grafana.ini.j2
+    dest: /etc/grafana/grafana.ini
+    mode: "0640"
+    owner: grafana
+    group: grafana
+  notify: restart grafana
+  become: true
+  tags: [monitoring, grafana]
+
+- name: Enable and start Grafana
+  ansible.builtin.systemd:
+    name: grafana-server
+    enabled: true
+    state: started
+  become: true
+  tags: [monitoring, grafana]
+
+- name: Download SNMP Exporter
+  ansible.builtin.unarchive:
+    src: "https://github.com/prometheus/snmp_exporter/releases/download/v{{ snmp_exporter_version }}/snmp_exporter-{{ snmp_exporter_version }}.linux-amd64.tar.gz"
+    dest: /tmp
+    remote_src: true
+  become: true
+  tags: [monitoring, snmp]
+
+- name: Install SNMP Exporter binary
+  ansible.builtin.copy:
+    src: "/tmp/snmp_exporter-{{ snmp_exporter_version }}.linux-amd64/snmp_exporter"
+    dest: /usr/local/bin/snmp_exporter
+    mode: "0755"
+    remote_src: true
+  become: true
+  tags: [monitoring, snmp]
+
+- name: Deploy SNMP Exporter config
+  ansible.builtin.template:
+    src: snmp.yml.j2
+    dest: /etc/snmp_exporter/snmp.yml
+    mode: "0644"
+  notify: restart snmp_exporter
+  become: true
+  tags: [monitoring, snmp]
+
+- name: Deploy SNMP Exporter systemd unit
+  ansible.builtin.template:
+    src: snmp_exporter.service.j2
+    dest: /etc/systemd/system/snmp_exporter.service
+    mode: "0644"
+  notify: restart snmp_exporter
+  become: true
+  tags: [monitoring, snmp]
+
+- name: Enable and start SNMP Exporter
+  ansible.builtin.systemd:
+    name: snmp_exporter
+    enabled: true
+    state: started
+    daemon_reload: true
+  become: true
+  tags: [monitoring, snmp]

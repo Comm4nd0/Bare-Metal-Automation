@@ -1,0 +1,16 @@
+---
+wsus_content_dir: "D:\\WSUS"
+wsus_port: 8530
+wsus_sql_instance: "MICROSOFT##WID"
+wsus_upstream_server: ""  # empty = sync from Microsoft Update
+wsus_classifications:
+  - SecurityUpdates
+  - CriticalUpdates
+  - UpdateRollups
+wsus_products:
+  - "Windows Server 2022"
+  - "Windows Server 2019"
+  - "Windows 11"
+wsus_auto_approve_critical: true
+wsus_sync_schedule: "03:00"
+wsus_gpo_name: "BMA - WSUS Configuration"

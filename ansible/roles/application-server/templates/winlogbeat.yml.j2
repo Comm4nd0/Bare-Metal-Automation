@@ -1,0 +1,20 @@
+winlogbeat.event_logs:
+  - name: Application
+    ignore_older: 72h
+  - name: System
+  - name: Security
+    processors:
+      - drop_event.when.not.or:
+        - equals.winlog.event_id: 4624
+        - equals.winlog.event_id: 4625
+        - equals.winlog.event_id: 4648
+
+output.logstash:
+  hosts: ["{{ log_collector_host }}:{{ log_collector_port }}"]
+
+logging.level: warning
+logging.to_files: true
+logging.files:
+  path: C:\ProgramData\winlogbeat\Logs
+  name: winlogbeat
+  keepfiles: 7

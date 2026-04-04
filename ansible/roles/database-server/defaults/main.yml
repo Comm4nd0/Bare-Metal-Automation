@@ -1,0 +1,19 @@
+---
+domain_name: "corp.local"
+mssql_instance_name: "MSSQLSERVER"
+mssql_service_account: "{{ domain_netbios }}\\svc_sql"
+mssql_sa_password: "{{ vault_mssql_sa_password }}"
+mssql_mixed_mode: true
+mssql_install_dir: "C:\\Program Files\\Microsoft SQL Server"
+mssql_data_dir: "D:\\SQLData"
+mssql_log_dir: "D:\\SQLLogs"
+mssql_backup_dir: "D:\\SQLBackups"
+mssql_max_memory_mb: 8192
+mssql_databases:
+  - name: "SCCM_DB"
+    owner: "{{ domain_netbios }}\\svc_sccm"
+  - name: "AppDB"
+    owner: "{{ domain_netbios }}\\svc_app"
+mssql_backup_schedule: "02:00"
+mssql_maintenance_schedule: "04:00"
+domain_netbios: "CORP"

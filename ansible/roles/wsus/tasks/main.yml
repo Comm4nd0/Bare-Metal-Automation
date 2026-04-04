@@ -1,0 +1,85 @@
+---
+# WSUS — install, configure, sync, auto-approval rules
+
+- name: Install WSUS role
+  ansible.windows.win_feature:
+    name:
+      - UpdateServices
+      - UpdateServices-WidDB
+      - UpdateServices-Services
+      - RSAT-UpdateServices
+    state: present
+    include_management_tools: true
+  register: wsus_feature
+  tags: [wsus, install]
+
+- name: Reboot if required
+  ansible.windows.win_reboot:
+    reboot_timeout: 600
+  when: wsus_feature.reboot_required
+  tags: [wsus, install]
+
+- name: Create WSUS content directory
+  ansible.windows.win_file:
+    path: "{{ wsus_content_dir }}"
+    state: directory
+  tags: [wsus, install]
+
+- name: Run WSUS post-install configuration
+  ansible.windows.win_shell: |
+    & "C:\Program Files\Update Services\Tools\WsusUtil.exe" postinstall CONTENT_DIR="{{ wsus_content_dir }}"
+  args:
+    creates: "{{ wsus_content_dir }}\\WSUSContent"
+  tags: [wsus, install]
+
+- name: Configure WSUS sync options
+  ansible.windows.win_shell: |
+    [reflection.assembly]::LoadWithPartialName("Microsoft.UpdateServices.Administration") | Out-Null
+    $wsus = [Microsoft.UpdateServices.Administration.AdminProxy]::GetUpdateServer('localhost', $false, {{ wsus_port }})
+    $config = $wsus.GetConfiguration()
+    $config.SyncFromMicrosoftUpdate = $true
+    $config.Save()
+  tags: [wsus, configure]
+
+- name: Configure product categories
+  ansible.windows.win_shell: |
+    [reflection.assembly]::LoadWithPartialName("Microsoft.UpdateServices.Administration") | Out-Null
+    $wsus = [Microsoft.UpdateServices.Administration.AdminProxy]::GetUpdateServer('localhost', $false, {{ wsus_port }})
+    $products = $wsus.GetSubscription().GetUpdateCategories()
+    foreach ($product in $products) {
+      $titles = @({{ wsus_products | map('quote') | join(', ') }})
+      if ($titles -contains $product.Title) {
+        $product.Select()
+      }
+    }
+  tags: [wsus, configure]
+
+- name: Create auto-approval rule for critical updates
+  ansible.windows.win_shell: |
+    [reflection.assembly]::LoadWithPartialName("Microsoft.UpdateServices.Administration") | Out-Null
+    $wsus = [Microsoft.UpdateServices.Administration.AdminProxy]::GetUpdateServer('localhost', $false, {{ wsus_port }})
+    $rules = $wsus.GetInstallApprovalRules()
+    $ruleName = "Auto-Approve Critical and Security Updates"
+    if (-not ($rules | Where-Object { $_.Name -eq $ruleName })) {
+      $rule = $wsus.CreateInstallApprovalRule($ruleName)
+      $rule.Enabled = $true
+      $rule.Save()
+    }
+  when: wsus_auto_approve_critical
+  tags: [wsus, auto_approval]
+
+- name: Configure WSUS client GPO
+  ansible.windows.win_shell: |
+    Import-Module GroupPolicy
+    $gpoName = "{{ wsus_gpo_name }}"
+    if (-not (Get-GPO -Name $gpoName -ErrorAction SilentlyContinue)) {
+      $gpo = New-GPO -Name $gpoName
+      Set-GPRegistryValue -Name $gpoName -Key "HKLM\Software\Policies\Microsoft\Windows\WindowsUpdate" `
+        -ValueName "WUServer" -Type String -Value "http://wsus01.{{ domain_name }}:{{ wsus_port }}"
+      Set-GPRegistryValue -Name $gpoName -Key "HKLM\Software\Policies\Microsoft\Windows\WindowsUpdate" `
+        -ValueName "WUStatusServer" -Type String -Value "http://wsus01.{{ domain_name }}:{{ wsus_port }}"
+      Set-GPRegistryValue -Name $gpoName -Key "HKLM\Software\Policies\Microsoft\Windows\WindowsUpdate\AU" `
+        -ValueName "UseWUServer" -Type DWord -Value 1
+      New-GPLink -Name $gpoName -Target "OU=Servers,DC={{ domain_name.split('.') | join(',DC=') }}"
+    }
+  tags: [wsus, gpo_config]

@@ -1,0 +1,10 @@
+---
+- name: Save IOS config
+  cisco.ios.ios_command:
+    commands: write memory
+  listen: save cisco config
+
+- name: Save NXOS config
+  cisco.nxos.nxos_command:
+    commands: copy running-config startup-config
+  listen: save nxos config

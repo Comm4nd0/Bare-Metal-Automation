@@ -1,0 +1,81 @@
+---
+# Database Server — MSSQL install, databases, maintenance plans, backups
+
+- name: Create SQL data directories
+  ansible.windows.win_file:
+    path: "{{ item }}"
+    state: directory
+  loop:
+    - "{{ mssql_data_dir }}"
+    - "{{ mssql_log_dir }}"
+    - "{{ mssql_backup_dir }}"
+  tags: [db, prepare]
+
+- name: Deploy SQL Server configuration file
+  ansible.windows.win_template:
+    src: mssql_config.ini.j2
+    dest: "C:\\Temp\\mssql_config.ini"
+  tags: [db, install]
+
+- name: Install SQL Server
+  ansible.windows.win_shell: |
+    & "\\\\{{ hostvars['file01']['ansible_host'] }}\\software\\sql_server\\setup.exe" `
+      /ConfigurationFile="C:\Temp\mssql_config.ini" /IACCEPTSQLSERVERLICENSETERMS /Q
+  args:
+    creates: "{{ mssql_install_dir }}\\MSSQL"
+  async: 3600
+  poll: 30
+  notify: restart mssql
+  tags: [db, install]
+
+- name: Enable SQL Server mixed mode authentication
+  ansible.windows.win_shell: |
+    Invoke-Sqlcmd -Query "EXEC xp_instance_regwrite N'HKEY_LOCAL_MACHINE', N'Software\Microsoft\MSSQLServer\MSSQLServer', N'LoginMode', REG_DWORD, 2"
+    Restart-Service MSSQLSERVER -Force
+  when: mssql_mixed_mode
+  tags: [db, configure]
+
+- name: Set SA password and enable SA account
+  ansible.windows.win_shell: |
+    Invoke-Sqlcmd -Query @"
+      ALTER LOGIN [sa] WITH PASSWORD = N'{{ mssql_sa_password }}';
+      ALTER LOGIN [sa] ENABLE;
+    "@
+  no_log: true
+  when: mssql_mixed_mode
+  tags: [db, configure]
+
+- name: Configure SQL Server max memory
+  ansible.windows.win_shell: |
+    Invoke-Sqlcmd -Query @"
+      EXEC sp_configure 'show advanced options', 1; RECONFIGURE;
+      EXEC sp_configure 'max server memory (MB)', {{ mssql_max_memory_mb }}; RECONFIGURE;
+    "@
+  notify: restart mssql
+  tags: [db, configure]
+
+- name: Create application databases
+  ansible.windows.win_shell: |
+    $db = "{{ item.name }}"
+    $exists = Invoke-Sqlcmd -Query "SELECT name FROM sys.databases WHERE name = '$db'" | Select-Object -ExpandProperty name
+    if (-not $exists) {
+      Invoke-Sqlcmd -Query @"
+        CREATE DATABASE [$db]
+        ON PRIMARY (NAME = '$db', FILENAME = '{{ mssql_data_dir }}\$db.mdf')
+        LOG ON (NAME = '${db}_log', FILENAME = '{{ mssql_log_dir }}\${db}_log.ldf');
+        ALTER AUTHORIZATION ON DATABASE::[$db] TO [{{ item.owner }}];
+      "@
+    }
+  loop: "{{ mssql_databases }}"
+  tags: [db, databases]
+
+- name: Deploy backup job SQL script
+  ansible.windows.win_template:
+    src: sql_backup_job.sql.j2
+    dest: "C:\\Temp\\backup_job.sql"
+  tags: [db, backup_schedule]
+
+- name: Create SQL backup maintenance plan
+  ansible.windows.win_shell: |
+    Invoke-Sqlcmd -InputFile "C:\Temp\backup_job.sql"
+  tags: [db, backup_schedule]

@@ -1,0 +1,32 @@
+---
+domain_name: "corp.local"
+domain_netbios: "CORP"
+domain_functional_level: "WinThreshold"  # Windows Server 2016+
+forest_functional_level: "WinThreshold"
+safe_mode_password: "{{ vault_dsrm_password }}"
+dhcp_scope_name: "Management"
+dhcp_scope_start: "10.0.0.100"
+dhcp_scope_end: "10.0.0.200"
+dhcp_scope_mask: "255.255.255.0"
+dhcp_scope_router: "10.0.0.1"
+dhcp_scope_dns: "10.0.0.10"
+dhcp_lease_duration: "8.00:00:00"
+ou_structure:
+  - "OU=Servers,DC=corp,DC=local"
+  - "OU=Workstations,DC=corp,DC=local"
+  - "OU=Service Accounts,DC=corp,DC=local"
+  - "OU=Groups,DC=corp,DC=local"
+  - "OU=Network Devices,DC=corp,DC=local"
+service_accounts:
+  - name: svc_monitoring
+    description: "Prometheus monitoring service account"
+    password: "{{ vault_svc_monitoring_password }}"
+  - name: svc_backup
+    description: "Veeam backup service account"
+    password: "{{ vault_svc_backup_password }}"
+  - name: svc_sccm
+    description: "SCCM service account"
+    password: "{{ vault_svc_sccm_password }}"
+  - name: svc_sql
+    description: "MSSQL service account"
+    password: "{{ vault_svc_sql_password }}"

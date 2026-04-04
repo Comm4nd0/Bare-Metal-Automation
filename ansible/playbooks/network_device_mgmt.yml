@@ -1,0 +1,39 @@
+---
+# Network Device Management Playbook
+# Configures SNMP v3, syslog, NTP, AAA/TACACS+, and 802.1X on all network devices.
+# Idempotent — safe to re-run.
+#
+# Usage:
+#   ansible-playbook playbooks/network_device_mgmt.yml -i inventory/site.yml
+#   ansible-playbook playbooks/network_device_mgmt.yml -i inventory/site.yml --tags snmp
+#   ansible-playbook playbooks/network_device_mgmt.yml -i inventory/site.yml --limit core_switches
+
+- name: "Network Device Management — Core and Distribution Switches"
+  hosts: core_switches:distribution_switches
+  gather_facts: false
+  connection: network_cli
+  tags: [netmgmt, switches]
+  vars:
+    device_role: "distribution"
+  roles:
+    - role: network-device-mgmt
+
+- name: "Network Device Management — Access Switches (802.1X)"
+  hosts: access_switches
+  gather_facts: false
+  connection: network_cli
+  tags: [netmgmt, access, dot1x]
+  vars:
+    device_role: "access"
+  roles:
+    - role: network-device-mgmt
+
+- name: "Network Device Management — WAN and Perimeter Routers"
+  hosts: wan_routers:perimeter_routers
+  gather_facts: false
+  connection: network_cli
+  tags: [netmgmt, routers]
+  vars:
+    device_role: "router"
+  roles:
+    - role: network-device-mgmt

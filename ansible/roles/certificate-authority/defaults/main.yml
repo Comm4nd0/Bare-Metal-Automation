@@ -1,0 +1,12 @@
+---
+domain_name: "corp.local"
+ca_common_name: "CORP-Root-CA"
+ca_type: "EnterpriseRootCa"
+key_length: 4096
+hash_algorithm: "SHA256"
+validity_years: 10
+certificate_templates:
+  - WebServer
+  - WorkstationAuthentication
+  - UserAuthentication
+  - ClientAuth

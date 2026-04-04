@@ -1,0 +1,28 @@
+[Identification]
+Action=InstallPrimarySite
+
+[Options]
+ProductID=EVAL
+SiteCode={{ sccm_site_code }}
+SiteName={{ sccm_site_name }}
+SMSInstallDir={{ sccm_install_dir }}
+SDKServer={{ inventory_hostname }}.{{ domain_name }}
+RoleCommunicationProtocol=HTTPorHTTPS
+ClientsUsePKICertificate=0
+PrerequisiteComp=1
+PrerequisitePath=C:\Temp\SCCMPrereqs
+ManagementPoint={{ inventory_hostname }}.{{ domain_name }}
+ManagementPointProtocol=HTTP
+DistributionPoint={{ inventory_hostname }}.{{ domain_name }}
+DistributionPointProtocol=HTTP
+DistributionPointInstallIIS=1
+AdminConsole=1
+JoinCEIP=0
+
+[SQLConfigOptions]
+SQLServerName={{ sccm_sql_server }}
+DatabaseName=CM_{{ sccm_site_code }}
+SQLSSBPort=4022
+
+[HierarchyExpansionOption]
+CCARSiteServer={{ inventory_hostname }}.{{ domain_name }}

@@ -1,0 +1,63 @@
+---
+# DNS Server role — AD-integrated zones, forwarders, reverse zones
+
+- name: Install DNS Server role
+  ansible.windows.win_feature:
+    name:
+      - DNS
+      - RSAT-DNS-Server
+    state: present
+    include_management_tools: true
+  register: dns_feature
+  tags: [dns, install]
+
+- name: Reboot if required
+  ansible.windows.win_reboot:
+    reboot_timeout: 600
+  when: dns_feature.reboot_required
+  tags: [dns, install]
+
+- name: Configure DNS forwarders
+  ansible.windows.win_shell: |
+    $forwarders = @({{ dns_forwarders | map('quote') | join(', ') }})
+    Set-DnsServerForwarder -IPAddress $forwarders -UseRootHint $false
+  notify: restart dns
+  tags: [dns, forwarders]
+
+- name: Create reverse lookup zones
+  ansible.windows.win_shell: |
+    $zone = "{{ item.zone }}"
+    if (-not (Get-DnsServerZone -Name $zone -ErrorAction SilentlyContinue)) {
+      Add-DnsServerPrimaryZone -Name $zone -ReplicationScope Domain -DynamicUpdate Secure
+    }
+  loop: "{{ reverse_zones }}"
+  tags: [dns, reverse_zones]
+
+- name: Set AD-integrated zone replication scope
+  ansible.windows.win_shell: |
+    $zone = "{{ domain_name }}"
+    Set-DnsServerPrimaryZone -Name $zone -ReplicationScope Domain -DynamicUpdate Secure
+  tags: [dns, zones]
+
+- name: Enable DNS scavenging
+  ansible.windows.win_shell: |
+    Set-DnsServerScavenging -ScavengingState $true -ScavengingInterval 7.00:00:00
+    Set-DnsServerZoneAging -ZoneName "{{ domain_name }}" -Aging $true -ScavengeServers "{{ ansible_host }}"
+  tags: [dns, scavenging]
+
+- name: Add static A records
+  ansible.windows.win_shell: |
+    $record = Get-DnsServerResourceRecord -ZoneName "{{ item.zone }}" -Name "{{ item.name }}" -ErrorAction SilentlyContinue
+    if (-not $record) {
+      Add-DnsServerResourceRecordA -ZoneName "{{ item.zone }}" -Name "{{ item.name }}" -IPv4Address "{{ item.value }}"
+    }
+  loop: "{{ static_records }}"
+  when: static_records | length > 0
+  tags: [dns, records]
+
+- name: Configure DNS debug logging
+  ansible.windows.win_shell: |
+    Set-DnsServerDiagnostics -LogFilePath "C:\Windows\System32\dns\dns.log" `
+      -MaxMBFileSize 100 -EnableLoggingForLocalLookupEvent $true `
+      -EnableLoggingForRemoteServerEvent $true -EnableLoggingForRecursiveLookupEvent $true
+  tags: [dns, logging]

@@ -1,0 +1,24 @@
+---
+- name: Restart Prometheus
+  ansible.builtin.systemd:
+    name: prometheus
+    state: restarted
+  listen: restart prometheus
+
+- name: Restart Grafana
+  ansible.builtin.systemd:
+    name: grafana-server
+    state: restarted
+  listen: restart grafana
+
+- name: Restart SNMP Exporter
+  ansible.builtin.systemd:
+    name: snmp_exporter
+    state: restarted
+  listen: restart snmp_exporter
+
+- name: Restart Alertmanager
+  ansible.builtin.systemd:
+    name: alertmanager
+    state: restarted
+  listen: restart alertmanager

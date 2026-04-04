@@ -1,0 +1,101 @@
+---
+# Network Device Management — SNMP v3, syslog, NTP, AAA/TACACS+, 802.1X
+
+- name: Configure SNMP v3 user
+  cisco.ios.ios_snmp_server:
+    config:
+      users:
+        - username: "{{ snmp_v3_user }}"
+          group: "{{ snmp_v3_user }}"
+          version: "v3"
+          auth:
+            algorithm: "{{ snmp_v3_auth_protocol }}"
+            password: "{{ snmp_v3_auth_key }}"
+          priv:
+            privacy: "{{ snmp_v3_priv_protocol }}"
+            password: "{{ snmp_v3_priv_key }}"
+      location: "{{ snmp_location }}"
+      contact: "{{ snmp_contact }}"
+  no_log: true
+  notify: save cisco config
+  tags: [netmgmt, snmp]
+  when: ansible_network_os == 'cisco.ios.ios'
+
+- name: Configure syslog on Cisco IOS devices
+  cisco.ios.ios_logging_global:
+    config:
+      hosts:
+        - hostname: "{{ syslog_host }}"
+          severity: informational
+          transport:
+            udp:
+              port: "{{ syslog_port }}"
+      buffered:
+        severity: informational
+        size: 32000
+      trap: informational
+  notify: save cisco config
+  tags: [netmgmt, syslog]
+  when: ansible_network_os == 'cisco.ios.ios'
+
+- name: Configure NTP on Cisco IOS devices
+  cisco.ios.ios_ntp_global:
+    config:
+      servers:
+        - server: "{{ ntp_server_primary }}"
+          prefer: true
+        - server: "{{ ntp_server_secondary }}"
+  notify: save cisco config
+  tags: [netmgmt, ntp]
+  when: ansible_network_os == 'cisco.ios.ios'
+
+- name: Configure AAA (TACACS+) on Cisco IOS
+  cisco.ios.ios_config:
+    lines:
+      - "aaa new-model"
+      - "aaa authentication login default group tacacs+ local"
+      - "aaa authentication enable default group tacacs+ enable"
+      - "aaa authorization exec default group tacacs+ local"
+      - "aaa accounting exec default start-stop group tacacs+"
+      - "aaa accounting commands 15 default start-stop group tacacs+"
+      - "tacacs server BMA-TACACS"
+      - " address ipv4 {{ tacacs_server }}"
+      - " key {{ tacacs_key }}"
+      - " timeout 5"
+  no_log: true
+  notify: save cisco config
+  tags: [netmgmt, aaa]
+  when: ansible_network_os == 'cisco.ios.ios'
+
+- name: Configure 802.1X globally on access switches
+  cisco.ios.ios_config:
+    lines:
+      - "dot1x system-auth-control"
+      - "radius server BMA-RADIUS"
+      - " address ipv4 {{ radius_server }} auth-port 1812 acct-port 1813"
+      - " key {{ radius_key }}"
+      - "aaa authentication dot1x default group radius"
+      - "aaa authorization network default group radius"
+  no_log: true
+  notify: save cisco config
+  tags: [netmgmt, dot1x]
+  when:
+    - ansible_network_os == 'cisco.ios.ios'
+    - device_role is defined
+    - device_role in ['access', 'distribution']
+
+- name: Configure 802.1X on access ports
+  cisco.ios.ios_config:
+    parents: "interface {{ item }}"
+    lines:
+      - "switchport mode access"
+      - "authentication port-control auto"
+      - "dot1x pae authenticator"
+      - "spanning-tree portfast"
+      - "ip access-group ACL-DEFAULT-DENY in"
+  loop: "{{ dot1x_access_ports | default([]) }}"
+  notify: save cisco config
+  tags: [netmgmt, dot1x]
+  when:
+    - ansible_network_os == 'cisco.ios.ios'
+    - dot1x_access_ports is defined

@@ -30,6 +30,49 @@ Bare Metal Automation is a zero-touch provisioning tool for bare-metal infrastru
 
 ## Session Log
 
+### Session — Phase 9 Ansible Roles + deploy_vms Command
+
+**Date**: 2026-04-04
+**Branch**: `luma/upbeat-noyce`
+
+**What was done**:
+- Created 17 production-quality Ansible roles under `ansible/roles/`:
+  - `common` — base Windows OS config: hostname, DNS, NTP, CIS L1 hardening, WinRM HTTPS, Windows Exporter install, domain join
+  - `domain-controller` — AD DS, DHCP, OU structure, service accounts (svc_monitoring, svc_backup, svc_sccm, svc_sql), password policy GPO
+  - `dns-server` — AD-integrated zones, forwarders, reverse lookup zones, static records, scavenging
+  - `certificate-authority` — AD CS root CA (4096-bit RSA/SHA256), certificate template enablement, auto-enrollment GPO
+  - `wsus` — install + post-install config, product/classification sync, auto-approval rule for critical/security updates, client GPO
+  - `nps-radius` — NPS install, AD registration, RADIUS clients (distribution switches), 802.1X network policy
+  - `sccm` — ADK prereqs, unattended install via `.ini` template, site boundaries, device collections
+  - `file-server` — DFS namespace (DomainV2), SMB shares, NTFS ACLs, FSRM quotas, home drive GPO
+  - `database-server` — MSSQL unattended install via `.ini` template, mixed mode auth, databases, backup job SQL script template
+  - `print-server` — Print Server role, TCP/IP ports, printer drivers, shared printers, GPO deployment
+  - `application-server` — generic app: per-app config via variables, NSX segment VLAN, app_config.xml and winlogbeat.yml templates
+  - `monitoring-server` — Prometheus 2.51 + Grafana 10.4 + SNMP Exporter 0.26; systemd units, alert rules, Grafana LDAP/SMTP config
+  - `log-collector` — ELK 8.13 stack (Elasticsearch + Logstash + Kibana); logstash pipeline template, ILM retention policy
+  - `backup-server` — Veeam Backup & Replication unattended install, repository, 2 backup job groups (infra + app servers)
+  - `bastion` — RD Gateway + CAP/RAP policies, SSL cert binding, session/idle timeouts, audit logging hardening
+  - `security` — EDR agent install, Windows Defender cloud protection, WEC syslog forwarding, vulnerability scanner firewall rule
+  - `network-device-mgmt` — Cisco IOS: SNMP v3 user, syslog, NTP, AAA/TACACS+, 802.1X global + per-port config
+- Created `ansible/playbooks/phase9_software.yml` — 8-step master playbook orchestrating all 21 VMs in dependency order
+- Created `ansible/playbooks/network_device_mgmt.yml` — standalone network device management playbook
+- Created `ansible/group_vars/all.yml` — global domain/WinRM/NTP/monitoring settings with vault secret placeholders
+- Created `ansible/host_vars/dc01.yml` — DC01 host-specific vars
+- Implemented `dashboard/deploy/management/commands/deploy_vms.py` — full Phase 9 management command using `ansible-runner`:
+  - `--deployment` (required), `--inventory`, `--steps` (selective tag execution), `--dry-run` (passes `--check`), `--vault-password-file`, `--verbosity-ansible`
+  - Streams ansible-runner events to stdout, surfaces changed/failed tasks in real time
+  - Creates/updates `DeploymentPhase` record (phase 9) with start/complete/fail lifecycle
+
+**Key decisions**:
+- Each role uses `win_*` modules (Windows Server VMs), except monitoring-server and log-collector which are Linux (Ubuntu)
+- All tasks have `tags:` for selective execution; `notify:` uses named listeners via `listen:` in handlers
+- Idempotency guarded in PowerShell blocks via `-ErrorAction SilentlyContinue` checks before creating resources
+- `no_log: true` on all tasks handling secrets (RADIUS, MSSQL SA, vault vars)
+- `become: true` used at play level or task level as appropriate per OS
+- SCCM and MSSQL installs use Jinja2 `.ini` / `.sql` templates (not hardcoded config)
+- `deploy_vms` resolves inventory from bundle_path if `--inventory` not specified; logs per-event ansible-runner callbacks
+- Phase 9 playbook respects sub-step tags so individual steps can be re-run without full re-deployment
+
 ### Session — Review & Fix deploy_netbox.sh for NetBox 4.x Compatibility
 
 **Date**: 2026-04-02

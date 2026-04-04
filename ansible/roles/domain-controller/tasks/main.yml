@@ -1,0 +1,113 @@
+---
+# Domain Controller — AD DS, DHCP, OUs, Service Accounts, GPOs
+
+- name: Install AD DS role
+  ansible.windows.win_feature:
+    name:
+      - AD-Domain-Services
+      - DNS
+      - DHCP
+      - RSAT-ADDS
+      - RSAT-DNS-Server
+      - RSAT-DHCP
+    state: present
+    include_management_tools: true
+  register: ad_feature
+  tags: [dc, install_adds]
+
+- name: Reboot after feature install
+  ansible.windows.win_reboot:
+    reboot_timeout: 600
+  when: ad_feature.reboot_required
+  tags: [dc, install_adds]
+
+- name: Create AD forest
+  microsoft.ad.domain:
+    dns_domain_name: "{{ domain_name }}"
+    domain_netbios_name: "{{ domain_netbios }}"
+    domain_mode: "{{ domain_functional_level }}"
+    forest_mode: "{{ forest_functional_level }}"
+    safe_mode_password: "{{ safe_mode_password }}"
+    create_dns_delegation: false
+    install_dns: true
+  register: domain_install
+  tags: [dc, create_forest]
+
+- name: Reboot after forest creation
+  ansible.windows.win_reboot:
+    reboot_timeout: 900
+  when: domain_install.reboot_required | default(false)
+  tags: [dc, create_forest]
+
+- name: Wait for AD Web Services
+  ansible.windows.win_service:
+    name: ADWS
+    state: started
+  tags: [dc, create_forest]
+
+- name: Authorize DHCP server in AD
+  ansible.windows.win_shell: |
+    Add-DhcpServerInDC -DnsName "{{ inventory_hostname }}.{{ domain_name }}" -IPAddress "{{ ansible_host }}"
+  tags: [dc, configure_dhcp]
+
+- name: Create DHCP scope
+  ansible.windows.win_shell: |
+    $scope = Get-DhcpServerv4Scope -ScopeId "{{ dhcp_scope_start | regex_replace('\\.[0-9]+$', '.0') }}" -ErrorAction SilentlyContinue
+    if (-not $scope) {
+      Add-DhcpServerv4Scope -Name "{{ dhcp_scope_name }}" `
+        -StartRange "{{ dhcp_scope_start }}" `
+        -EndRange "{{ dhcp_scope_end }}" `
+        -SubnetMask "{{ dhcp_scope_mask }}" `
+        -State Active `
+        -LeaseDuration "{{ dhcp_lease_duration }}"
+      Set-DhcpServerv4OptionValue -ScopeId "{{ dhcp_scope_start | regex_replace('\\.[0-9]+$', '.0') }}" `
+        -Router "{{ dhcp_scope_router }}" `
+        -DnsServer "{{ dhcp_scope_dns }}" `
+        -DnsDomain "{{ domain_name }}"
+    }
+  tags: [dc, configure_dhcp]
+
+- name: Create OU structure
+  microsoft.ad.ou:
+    name: "{{ item.split(',')[0].split('=')[1] }}"
+    path: "{{ item.split(',')[1:] | join(',') }}"
+    state: present
+  loop: "{{ ou_structure }}"
+  tags: [dc, create_ous]
+
+- name: Create service accounts
+  microsoft.ad.user:
+    name: "{{ item.name }}"
+    password: "{{ item.password }}"
+    description: "{{ item.description }}"
+    path: "OU=Service Accounts,DC={{ domain_name.split('.') | join(',DC=') }}"
+    password_never_expires: true
+    account_locked: false
+    enabled: true
+    state: present
+  loop: "{{ service_accounts }}"
+  no_log: true
+  tags: [dc, create_service_accounts]
+
+- name: Configure Default Domain Password Policy GPO
+  ansible.windows.win_shell: |
+    Import-Module GroupPolicy
+    $gpo = Get-GPO -Name "Default Domain Policy"
+    Set-ADDefaultDomainPasswordPolicy `
+      -MinPasswordLength 14 `
+      -PasswordHistoryCount 24 `
+      -MaxPasswordAge "90.00:00:00" `
+      -MinPasswordAge "1.00:00:00" `
+      -ComplexityEnabled $true `
+      -ReversibleEncryptionEnabled $false
+  tags: [dc, apply_gpos]
+
+- name: Create Windows Exporter firewall GPO
+  ansible.windows.win_shell: |
+    Import-Module GroupPolicy
+    $gpoName = "BMA - Windows Exporter Firewall"
+    if (-not (Get-GPO -Name $gpoName -ErrorAction SilentlyContinue)) {
+      $gpo = New-GPO -Name $gpoName
+      New-GPLink -Name $gpoName -Target "OU=Servers,DC={{ domain_name.split('.') | join(',DC=') }}"
+    }
+  tags: [dc, apply_gpos]

@@ -1,0 +1,29 @@
+---
+domain_name: "corp.local"
+veeam_install_path: "C:\\Program Files\\Veeam\\Backup and Replication"
+veeam_catalog_path: "D:\\VeeamCatalog"
+veeam_repository_path: "D:\\VeeamRepository"
+veeam_repository_name: "BMA-Backup-Repository"
+veeam_service_account: "CORP\\svc_backup"
+veeam_sql_server: "db01.{{ domain_name }}"
+veeam_sql_db: "VeeamBackup"
+backup_jobs:
+  - name: "BMA-Infrastructure-Daily"
+    type: "BackupJob"
+    vms:
+      - "dc01"
+      - "dns01"
+      - "dns02"
+      - "file01"
+      - "db01"
+    schedule: "22:00"
+    retention_restore_points: 14
+  - name: "BMA-AppServers-Daily"
+    type: "BackupJob"
+    vms:
+      - "app01"
+      - "app02"
+      - "app03"
+      - "app04"
+    schedule: "23:00"
+    retention_restore_points: 7

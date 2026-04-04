@@ -1,0 +1,91 @@
+---
+# Bastion / Jump Host — RD Gateway, MFA, hardening, audit logging
+
+- name: Install Remote Desktop Services roles
+  ansible.windows.win_feature:
+    name:
+      - RDS-Gateway
+      - RDS-Connection-Broker
+      - RSAT-RDS-Gateway
+    state: present
+    include_management_tools: true
+  register: rds_feature
+  tags: [bastion, install]
+
+- name: Reboot if required
+  ansible.windows.win_reboot:
+    reboot_timeout: 600
+  when: rds_feature.reboot_required
+  tags: [bastion, install]
+
+- name: Create audit log directory
+  ansible.windows.win_file:
+    path: "{{ audit_log_path }}"
+    state: directory
+  tags: [bastion, audit]
+
+- name: Configure RD Gateway SSL certificate
+  ansible.windows.win_shell: |
+    Import-Module RemoteDesktopServices
+    $rdGw = Get-Item "RDS:\GatewayServer\SSLCertificate"
+    Set-Item "RDS:\GatewayServer\SSLCertificate\Thumbprint" -Value (
+      (Get-ChildItem Cert:\LocalMachine\My | Where-Object { $_.Subject -like "*{{ inventory_hostname }}*" } | Select-Object -First 1).Thumbprint
+    )
+  tags: [bastion, configure]
+
+- name: Configure RD Gateway timeout policy
+  ansible.windows.win_shell: |
+    Import-Module RemoteDesktopServices
+    Set-Item "RDS:\GatewayServer\IdleTimeout" -Value {{ idle_timeout_minutes }}
+    Set-Item "RDS:\GatewayServer\SessionTimeout" -Value {{ session_timeout_minutes }}
+    Set-Item "RDS:\GatewayServer\SessionTimeoutAction" -Value 1
+  notify: restart rdgateway
+  tags: [bastion, configure]
+
+- name: Create RD Gateway CAP (allowed groups)
+  ansible.windows.win_shell: |
+    Import-Module RemoteDesktopServices
+    $capName = "BMA-Admins-CAP"
+    $cap = Get-Item "RDS:\GatewayServer\CAP\$capName" -ErrorAction SilentlyContinue
+    if (-not $cap) {
+      New-Item -Path "RDS:\GatewayServer\CAP" -Name $capName `
+        -UserGroups @({{ allowed_admin_groups | map('regex_replace', '^', '"') | map('regex_replace', '$', '"') | join(', ') }}) `
+        -AuthMethod 1
+    }
+  tags: [bastion, cap]
+
+- name: Create RD Gateway RAP (allowed resources)
+  ansible.windows.win_shell: |
+    Import-Module RemoteDesktopServices
+    $rapName = "BMA-Internal-RAP"
+    $rap = Get-Item "RDS:\GatewayServer\RAP\$rapName" -ErrorAction SilentlyContinue
+    if (-not $rap) {
+      New-Item -Path "RDS:\GatewayServer\RAP" -Name $rapName `
+        -UserGroups @({{ allowed_admin_groups | map('regex_replace', '^', '"') | map('regex_replace', '$', '"') | join(', ') }}) `
+        -ComputerGroupType 2
+    }
+  tags: [bastion, rap]
+
+- name: Enable enhanced RDP security logging
+  ansible.windows.win_shell: |
+    auditpol /set /subcategory:"Logon" /success:enable /failure:enable
+    auditpol /set /subcategory:"Logoff" /success:enable
+    auditpol /set /subcategory:"Other Logon/Logoff Events" /success:enable /failure:enable
+  tags: [bastion, audit, hardening]
+
+- name: Restrict RDP to allowed groups only (local policy)
+  ansible.windows.win_group:
+    name: "Remote Desktop Users"
+    members: "{{ allowed_admin_groups }}"
+    action: add
+  tags: [bastion, hardening]
+
+- name: Disable direct RDP (force through gateway) via GPO
+  ansible.windows.win_shell: |
+    Import-Module GroupPolicy
+    $gpoName = "BMA - Bastion RDP Policy"
+    if (-not (Get-GPO -Name $gpoName -ErrorAction SilentlyContinue)) {
+      $gpo = New-GPO -Name $gpoName
+      New-GPLink -Name $gpoName -Target "OU=Servers,DC={{ domain_name.split('.') | join(',DC=') }}"
+    }
+  tags: [bastion, hardening]

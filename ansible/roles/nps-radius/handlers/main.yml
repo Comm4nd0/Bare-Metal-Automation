@@ -1,0 +1,6 @@
+---
+- name: Restart IAS
+  ansible.windows.win_service:
+    name: IAS
+    state: restarted
+  listen: restart nps

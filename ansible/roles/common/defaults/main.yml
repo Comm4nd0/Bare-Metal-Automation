@@ -1,0 +1,15 @@
+---
+# Common role defaults
+ntp_servers:
+  - "ntp01.{{ domain_name }}"
+  - "pool.ntp.org"
+dns_servers:
+  - "{{ hostvars['dc01']['ansible_host'] }}"
+  - "{{ hostvars['dns01']['ansible_host'] }}"
+domain_name: "corp.local"
+domain_netbios: "CORP"
+admin_user: "{{ domain_netbios }}\\Administrator"
+cis_level: 1
+monitoring_agent_url: "http://mon01.{{ domain_name }}:9182"
+log_collector_host: "log01.{{ domain_name }}"
+log_collector_port: 5044

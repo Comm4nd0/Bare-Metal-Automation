@@ -1,0 +1,8 @@
+cluster.name: bma-logging
+node.name: {{ ansible_hostname }}
+path.data: {{ elk_data_dir }}
+path.logs: {{ elk_log_dir }}
+network.host: 0.0.0.0
+http.port: 9200
+discovery.type: single-node
+xpack.security.enabled: false

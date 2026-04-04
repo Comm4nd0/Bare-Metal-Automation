@@ -1,0 +1,108 @@
+---
+# Common base configuration applied to ALL Windows VMs
+
+- name: Set hostname
+  ansible.windows.win_hostname:
+    name: "{{ inventory_hostname }}"
+  notify: restart winrm
+  tags: [common, hostname]
+
+- name: Set DNS servers
+  ansible.windows.win_dns_client:
+    adapter_names: "*"
+    ipv4_addresses: "{{ dns_servers }}"
+  tags: [common, dns]
+
+- name: Configure NTP server
+  ansible.windows.win_shell: |
+    w32tm /config /manualpeerlist:"{{ ntp_servers | join(' ') }}" /syncfromflags:manual /reliable:YES /update
+    Restart-Service w32tm
+    w32tm /resync /force
+  tags: [common, ntp]
+
+- name: Ensure Windows Firewall is enabled
+  ansible.windows.win_firewall:
+    state: enabled
+    profiles:
+      - Domain
+      - Private
+      - Public
+  tags: [common, firewall, hardening]
+
+- name: Disable SMBv1
+  ansible.windows.win_shell: |
+    Set-SmbServerConfiguration -EnableSMB1Protocol $false -Force
+  tags: [common, hardening, smb]
+
+- name: Enable audit policy — logon events
+  ansible.windows.win_shell: |
+    auditpol /set /subcategory:"Logon" /success:enable /failure:enable
+    auditpol /set /subcategory:"Account Logon" /success:enable /failure:enable
+    auditpol /set /subcategory:"Account Management" /success:enable /failure:enable
+  tags: [common, hardening, audit]
+
+- name: Set minimum password length (CIS L1)
+  ansible.windows.win_security_policy:
+    section: System Access
+    key: MinimumPasswordLength
+    value: "14"
+  tags: [common, hardening, cis]
+
+- name: Set account lockout threshold (CIS L1)
+  ansible.windows.win_security_policy:
+    section: System Access
+    key: LockoutBadCount
+    value: "5"
+  tags: [common, hardening, cis]
+
+- name: Set lockout duration (CIS L1)
+  ansible.windows.win_security_policy:
+    section: System Access
+    key: LockoutDuration
+    value: "15"
+  tags: [common, hardening, cis]
+
+- name: Disable Guest account
+  ansible.windows.win_user:
+    name: Guest
+    account_disabled: true
+  tags: [common, hardening, cis]
+
+- name: Configure WinRM HTTPS listener
+  ansible.windows.win_shell: |
+    $cert = New-SelfSignedCertificate -DnsName $env:COMPUTERNAME -CertStoreLocation Cert:\LocalMachine\My
+    New-WSManInstance WinRM/Config/Listener -SelectorSet @{Address='*';Transport='HTTPS'} `
+      -ValueSet @{Hostname=$env:COMPUTERNAME;CertificateThumbprint=$cert.Thumbprint} -ErrorAction SilentlyContinue
+  args:
+    creates: C:\Windows\System32\config\WinRM_HTTPS_configured.flag
+  tags: [common, winrm]
+
+- name: Install Windows Exporter (Prometheus monitoring agent)
+  ansible.windows.win_package:
+    path: "\\\\{{ hostvars['mon01']['ansible_host'] }}\\software\\windows_exporter.msi"
+    state: present
+    arguments: ENABLED_COLLECTORS="cpu,cs,logical_disk,memory,net,os,service,system,tcp,time"
+  tags: [common, monitoring]
+
+- name: Configure syslog forwarding to log collector
+  ansible.windows.win_shell: |
+    $source = "BMA"
+    if (-not [System.Diagnostics.EventLog]::SourceExists($source)) {
+      New-EventLog -LogName Application -Source $source
+    }
+  tags: [common, logging]
+
+- name: Join domain
+  microsoft.ad.membership:
+    dns_domain_name: "{{ domain_name }}"
+    domain_admin_user: "{{ admin_user }}"
+    domain_admin_password: "{{ domain_admin_password }}"
+    state: domain
+  register: domain_join_result
+  tags: [common, domain_join]
+
+- name: Reboot after domain join
+  ansible.windows.win_reboot:
+    reboot_timeout: 600
+  when: domain_join_result.reboot_required | default(false)
+  tags: [common, domain_join]

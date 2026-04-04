@@ -1,0 +1,75 @@
+---
+# Backup Server — Veeam Backup & Replication
+
+- name: Create Veeam directories
+  ansible.windows.win_file:
+    path: "{{ item }}"
+    state: directory
+  loop:
+    - "{{ veeam_catalog_path }}"
+    - "{{ veeam_repository_path }}"
+  tags: [backup, prepare]
+
+- name: Install Veeam Backup & Replication (unattended)
+  ansible.windows.win_package:
+    path: "\\\\{{ hostvars['file01']['ansible_host'] }}\\software\\veeam\\Setup.exe"
+    product_id: "{A12F7A2A-A45F-4DE4-B524-AEA2AE2D3E09}"
+    state: present
+    arguments: >
+      /silent /norestart
+      /accepteula /acceptthirdpartylicenses
+      VBR_SQLSERVER="{{ veeam_sql_server }}"
+      VBR_SQLDB="{{ veeam_sql_db }}"
+      VBR_SERVICE_USER="{{ veeam_service_account }}"
+      VBR_SERVICE_PASSWORD="{{ vault_svc_backup_password }}"
+  tags: [backup, install]
+
+- name: Wait for Veeam services to start
+  ansible.windows.win_service:
+    name: VeeamBackupSvc
+    state: started
+  retries: 10
+  delay: 30
+  tags: [backup, install]
+
+- name: Add backup repository
+  ansible.windows.win_shell: |
+    Add-PSSnapin VeeamPSSnapIn -ErrorAction SilentlyContinue
+    Connect-VBRServer -Server localhost
+    $repo = Get-VBRBackupRepository -Name "{{ veeam_repository_name }}" -ErrorAction SilentlyContinue
+    if (-not $repo) {
+      Add-VBRBackupRepository -Name "{{ veeam_repository_name }}" `
+        -Path "{{ veeam_repository_path }}" `
+        -Type WinLocal `
+        -MaxConcurrentJobs 4
+    }
+  tags: [backup, repository]
+
+- name: Create backup jobs
+  ansible.windows.win_shell: |
+    Add-PSSnapin VeeamPSSnapIn -ErrorAction SilentlyContinue
+    Connect-VBRServer -Server localhost
+    $repo = Get-VBRBackupRepository -Name "{{ veeam_repository_name }}"
+    $jobName = "{{ item.name }}"
+    $existing = Get-VBRJob -Name $jobName -ErrorAction SilentlyContinue
+    if (-not $existing) {
+      $vms = @({{ item.vms | map('quote') | join(', ') }})
+      $entities = $vms | ForEach-Object { Find-VBRViEntity -Name $_ }
+      $schedule = New-VBRJobScheduleOptions
+      Add-VBRViBackupJob -Name $jobName -Entity $entities `
+        -BackupRepository $repo `
+        -Description "BMA automated backup job"
+    }
+  loop: "{{ backup_jobs }}"
+  tags: [backup, jobs]
+
+- name: Test backup connectivity
+  ansible.windows.win_shell: |
+    Add-PSSnapin VeeamPSSnapIn -ErrorAction SilentlyContinue
+    Connect-VBRServer -Server localhost
+    $server = Get-VBRServer -Name localhost
+    if (-not $server) {
+      throw "Cannot connect to Veeam Backup Server"
+    }
+    Write-Host "Veeam connection test: OK"
+  tags: [backup, test_backup]

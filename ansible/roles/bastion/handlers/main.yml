@@ -1,0 +1,12 @@
+---
+- name: Restart RD Gateway
+  ansible.windows.win_service:
+    name: TSGateway
+    state: restarted
+  listen: restart rdgateway
+
+- name: Restart RD Session Host
+  ansible.windows.win_service:
+    name: TermService
+    state: restarted
+  listen: restart rdsh

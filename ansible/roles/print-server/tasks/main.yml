@@ -1,0 +1,60 @@
+---
+# Print Server — role install, printer objects, GPO deployment
+
+- name: Install Print Server role
+  ansible.windows.win_feature:
+    name:
+      - Print-Server
+      - Print-Internet
+      - RSAT-Print-Services
+    state: present
+    include_management_tools: true
+  register: print_feature
+  tags: [print, install]
+
+- name: Reboot if required
+  ansible.windows.win_reboot:
+    reboot_timeout: 600
+  when: print_feature.reboot_required
+  tags: [print, install]
+
+- name: Add printer TCP/IP ports
+  ansible.windows.win_shell: |
+    $port = Get-PrinterPort -Name "{{ item.port_name }}" -ErrorAction SilentlyContinue
+    if (-not $port) {
+      Add-PrinterPort -Name "{{ item.port_name }}" -PrinterHostAddress "{{ item.port_ip }}"
+    }
+  loop: "{{ printers }}"
+  notify: restart spooler
+  tags: [print, printers]
+
+- name: Install printer drivers
+  ansible.windows.win_shell: |
+    $driver = Get-PrinterDriver -Name "{{ item.driver }}" -ErrorAction SilentlyContinue
+    if (-not $driver) {
+      Add-PrinterDriver -Name "{{ item.driver }}"
+    }
+  loop: "{{ printers }}"
+  tags: [print, printers]
+
+- name: Add printers
+  ansible.windows.win_shell: |
+    $printer = Get-Printer -Name "{{ item.name }}" -ErrorAction SilentlyContinue
+    if (-not $printer) {
+      Add-Printer -Name "{{ item.name }}" -DriverName "{{ item.driver }}" `
+        -PortName "{{ item.port_name }}" -Shared $true `
+        -ShareName "{{ item.share_name }}" -Location "{{ item.location }}" `
+        -Published $true
+    }
+  loop: "{{ printers }}"
+  tags: [print, printers]
+
+- name: Configure printer deployment GPO
+  ansible.windows.win_shell: |
+    Import-Module GroupPolicy
+    $gpoName = "{{ printer_gpo_name }}"
+    if (-not (Get-GPO -Name $gpoName -ErrorAction SilentlyContinue)) {
+      $gpo = New-GPO -Name $gpoName
+      New-GPLink -Name $gpoName -Target "DC={{ domain_name.split('.') | join(',DC=') }}"
+    }
+  tags: [print, gpo]

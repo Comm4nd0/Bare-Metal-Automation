@@ -1,0 +1,15 @@
+---
+domain_name: "corp.local"
+domain_netbios: "CORP"
+app_name: "default-app"
+app_install_dir: "C:\\Apps\\{{ app_name }}"
+app_service_name: "{{ app_name }}"
+app_service_account: "{{ domain_netbios }}\\svc_app"
+app_db_server: "db01.{{ domain_name }}"
+app_db_name: "AppDB"
+app_log_dir: "C:\\Logs\\{{ app_name }}"
+app_port: 8080
+app_source_path: "\\\\file01.{{ domain_name }}\\Software\\apps\\{{ app_name }}"
+nsx_segment_vlan: 1110
+log_collector_host: "log01.{{ domain_name }}"
+log_collector_port: 5044

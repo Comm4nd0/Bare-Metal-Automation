@@ -1,0 +1,19 @@
+[server]
+http_port = {{ grafana_port }}
+domain = mon01.{{ domain_name }}
+
+[security]
+admin_password = {{ grafana_admin_password }}
+disable_gravatar = true
+
+[auth.ldap]
+enabled = true
+config_file = /etc/grafana/ldap.toml
+
+[smtp]
+enabled = true
+host = {{ alertmanager_smtp_host }}
+from_address = {{ alertmanager_smtp_from }}
+
+[log]
+level = warn

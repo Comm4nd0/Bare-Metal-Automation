@@ -1,0 +1,17 @@
+---
+domain_name: "corp.local"
+print_server_name: "print01"
+printers:
+  - name: "FloorA-HP-LJ"
+    driver: "HP LaserJet 4350 PCL 6"
+    port_ip: "10.0.5.10"
+    port_name: "IP_10.0.5.10"
+    share_name: "FloorA-LJ"
+    location: "Floor A"
+  - name: "FloorB-HP-LJ"
+    driver: "HP LaserJet 4350 PCL 6"
+    port_ip: "10.0.5.11"
+    port_name: "IP_10.0.5.11"
+    share_name: "FloorB-LJ"
+    location: "Floor B"
+printer_gpo_name: "BMA - Printer Deployment"

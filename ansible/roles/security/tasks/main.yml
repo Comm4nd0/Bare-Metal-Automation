@@ -1,0 +1,85 @@
+---
+# Security — EDR agents, Windows Defender GPO, SIEM forwarder
+
+- name: Install EDR agent
+  ansible.windows.win_package:
+    path: "{{ edr_agent_installer }}"
+    state: present
+    arguments: "/silent /server={{ edr_policy_server }} /key={{ edr_agent_key }}"
+  no_log: true
+  tags: [security, edr]
+
+- name: Verify EDR agent service is running
+  ansible.windows.win_service:
+    name: EDRAgent
+    state: started
+    start_mode: auto
+  tags: [security, edr]
+
+- name: Enable Windows Defender real-time protection
+  ansible.windows.win_shell: |
+    Set-MpPreference -DisableRealtimeMonitoring $false
+    Set-MpPreference -CloudBlockLevel High
+    Set-MpPreference -MAPSReporting Advanced
+  notify: restart defender
+  tags: [security, defender]
+
+- name: Enable Windows Defender cloud protection
+  ansible.windows.win_shell: |
+    Set-MpPreference -EnableNetworkProtection Enabled
+    Set-MpPreference -PUAProtection Enabled
+  when: defender_cloud_protection
+  tags: [security, defender]
+
+- name: Configure Defender exclusions for known safe paths
+  ansible.windows.win_shell: |
+    Add-MpPreference -ExclusionPath "C:\Program Files\Microsoft SQL Server"
+    Add-MpPreference -ExclusionPath "C:\Program Files\Veeam"
+    Add-MpPreference -ExclusionExtension ".mdf"
+    Add-MpPreference -ExclusionExtension ".ldf"
+  tags: [security, defender]
+
+- name: Enable Windows Defender GPO (via registry)
+  ansible.windows.win_regedit:
+    path: HKLM:\SOFTWARE\Policies\Microsoft\Windows Defender
+    name: DisableAntiSpyware
+    data: 0
+    type: dword
+  tags: [security, defender]
+
+- name: Configure syslog forwarding to SIEM
+  ansible.windows.win_shell: |
+    $wecConfig = @"
+    <Subscription xmlns="http://schemas.microsoft.com/2006/03/windows/events/subscription">
+      <SubscriptionId>BMA-SIEM-Forward</SubscriptionId>
+      <SubscriptionType>SourceInitiated</SubscriptionType>
+      <Enabled>true</Enabled>
+      <Uri>http://schemas.microsoft.com/wbem/wsman/1/windows/EventLog</Uri>
+      <Locale Language="en-US" />
+      <LogFile>ForwardedEvents</LogFile>
+    </Subscription>
+    "@
+    $wecConfig | Set-Content C:\Temp\wec_subscription.xml
+    wecutil cs C:\Temp\wec_subscription.xml
+  tags: [security, siem]
+
+- name: Allow vulnerability scanner access through firewall
+  ansible.windows.win_firewall_rule:
+    name: "Allow Vulnerability Scanner"
+    remoteip: "{{ vulnerability_scanner_ip }}"
+    action: allow
+    direction: in
+    protocol: any
+    state: present
+    enabled: true
+  tags: [security, vulnerability]
+
+- name: Deploy security baseline GPO
+  ansible.windows.win_shell: |
+    Import-Module GroupPolicy
+    $gpoName = "BMA - Security Baseline"
+    if (-not (Get-GPO -Name $gpoName -ErrorAction SilentlyContinue)) {
+      $gpo = New-GPO -Name $gpoName
+      New-GPLink -Name $gpoName -Target "DC={{ domain_name.split('.') | join(',DC=') }}"
+    }
+  tags: [security, gpo]

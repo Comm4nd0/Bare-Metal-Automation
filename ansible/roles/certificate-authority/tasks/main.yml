@@ -1,0 +1,65 @@
+---
+# Certificate Authority — AD CS installation and configuration
+
+- name: Install AD CS role
+  ansible.windows.win_feature:
+    name:
+      - ADCS-Cert-Authority
+      - ADCS-Web-Enrollment
+      - RSAT-ADCS
+    state: present
+    include_management_tools: true
+  register: adcs_feature
+  tags: [ca, install_adcs]
+
+- name: Reboot if required
+  ansible.windows.win_reboot:
+    reboot_timeout: 600
+  when: adcs_feature.reboot_required
+  tags: [ca, install_adcs]
+
+- name: Configure Root CA
+  ansible.windows.win_shell: |
+    $caConfig = @{
+      CAType              = "{{ ca_type }}"
+      CryptoProviderName  = "RSA#Microsoft Software Key Storage Provider"
+      KeyLength           = {{ key_length }}
+      HashAlgorithmName   = "{{ hash_algorithm }}"
+      ValidityPeriod      = "Years"
+      ValidityPeriodUnits = {{ validity_years }}
+      CACommonName        = "{{ ca_common_name }}"
+      DatabaseDirectory   = "C:\Windows\system32\CertLog"
+      LogDirectory        = "C:\Windows\system32\CertLog"
+      Force               = $true
+    }
+    Install-AdcsCertificationAuthority @caConfig -Confirm:$false
+  args:
+    creates: "C:\\Windows\\system32\\CertSrv\\CertEnroll\\{{ ca_common_name }}.crt"
+  notify: restart certsvc
+  tags: [ca, configure_root_ca]
+
+- name: Publish CRL
+  ansible.windows.win_shell: |
+    certutil -crl
+  tags: [ca, configure_root_ca]
+
+- name: Enable certificate templates
+  ansible.windows.win_shell: |
+    $template = "{{ item }}"
+    $adsi = [ADSI]"LDAP://CN=Certificate Templates,CN=Public Key Services,CN=Services,{{ domain_name.split('.') | map('regex_replace', '^', 'DC=') | join(',') }}"
+    $template_dn = "CN=$template,CN=Certificate Templates,CN=Public Key Services,CN=Services,{{ domain_name.split('.') | map('regex_replace', '^', 'DC=') | join(',') }}"
+    try {
+      certutil -SetCATemplates +$template
+    } catch { Write-Host "Template $template may already be enabled" }
+  loop: "{{ certificate_templates }}"
+  tags: [ca, issue_certificates]
+
+- name: Configure auto-enrollment GPO
+  ansible.windows.win_shell: |
+    Import-Module GroupPolicy
+    $gpoName = "BMA - Certificate Auto-Enrollment"
+    if (-not (Get-GPO -Name $gpoName -ErrorAction SilentlyContinue)) {
+      $gpo = New-GPO -Name $gpoName
+      New-GPLink -Name $gpoName -Target "DC={{ domain_name.split('.') | join(',DC=') }}"
+    }
+  tags: [ca, issue_certificates]

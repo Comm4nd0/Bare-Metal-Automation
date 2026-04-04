@@ -1,0 +1,18 @@
+---
+snmp_v3_user: "snmpmon"
+snmp_v3_auth_protocol: "sha"
+snmp_v3_priv_protocol: "aes128"
+snmp_v3_auth_key: "{{ vault_snmp_v3_auth }}"
+snmp_v3_priv_key: "{{ vault_snmp_v3_priv }}"
+snmp_location: "BMA Site"
+snmp_contact: "ops@corp.local"
+syslog_host: "log01.corp.local"
+syslog_port: 514
+ntp_server_primary: "ntp01.corp.local"
+ntp_server_secondary: "pool.ntp.org"
+tacacs_server: "nps01.corp.local"
+tacacs_key: "{{ vault_tacacs_key }}"
+radius_server: "nps01.corp.local"
+radius_key: "{{ vault_radius_key }}"
+dot1x_guest_vlan: 999
+dot1x_auth_fail_vlan: 998

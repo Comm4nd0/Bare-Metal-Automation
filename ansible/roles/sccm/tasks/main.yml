@@ -1,0 +1,76 @@
+---
+# SCCM Site Server — install and configure
+
+- name: Install SCCM prerequisites (Windows ADK)
+  ansible.windows.win_package:
+    path: "\\\\{{ hostvars['file01']['ansible_host'] }}\\software\\adksetup.exe"
+    arguments: "/quiet /norestart /features OptionId.DeploymentTools OptionId.WindowsPreinstallationEnvironment"
+    state: present
+    product_id: "{A4D27B43-9DEA-4AC5-9E75-1CE5AB68B26D}"
+  tags: [sccm, install]
+
+- name: Install .NET Framework 3.5
+  ansible.windows.win_feature:
+    name: NET-Framework-Core
+    state: present
+  tags: [sccm, install]
+
+- name: Install WSUS Administration Tools
+  ansible.windows.win_feature:
+    name:
+      - UpdateServices-UI
+    state: present
+  tags: [sccm, install]
+
+- name: Create SCCM content directory
+  ansible.windows.win_file:
+    path: "{{ sccm_content_dir }}"
+    state: directory
+  tags: [sccm, install]
+
+- name: Create SCCM install directory
+  ansible.windows.win_file:
+    path: "{{ sccm_install_dir }}"
+    state: directory
+  tags: [sccm, install]
+
+- name: Deploy SCCM setup script
+  ansible.windows.win_template:
+    src: sccm_setup.ini.j2
+    dest: "C:\\Temp\\sccm_setup.ini"
+  tags: [sccm, install]
+
+- name: Run SCCM setup (unattended)
+  ansible.windows.win_shell: |
+    & "\\\\{{ hostvars['file01']['ansible_host'] }}\\software\\sccm\\SMSSETUP\\BIN\\X64\\setup.exe" `
+      /script "C:\Temp\sccm_setup.ini" /NOUSERINPUT
+  args:
+    creates: "{{ sccm_install_dir }}\\bin\\x64\\smsexec.exe"
+  async: 7200
+  poll: 60
+  tags: [sccm, install]
+
+- name: Configure SCCM boundaries
+  ansible.windows.win_shell: |
+    Import-Module "{{ sccm_install_dir }}\bin\ConfigurationManager.psd1"
+    Set-Location "{{ sccm_site_code }}:"
+    $boundary = Get-CMBoundary -BoundaryName "{{ sccm_boundary_name }}" -ErrorAction SilentlyContinue
+    if (-not $boundary) {
+      New-CMBoundary -Name "{{ sccm_boundary_name }}" -Type IPRange `
+        -Value "{{ sccm_boundary_ip_range_start }}-{{ sccm_boundary_ip_range_end }}"
+    }
+  tags: [sccm, boundaries]
+
+- name: Create device collections
+  ansible.windows.win_shell: |
+    Import-Module "{{ sccm_install_dir }}\bin\ConfigurationManager.psd1"
+    Set-Location "{{ sccm_site_code }}:"
+    $collection = Get-CMDeviceCollection -Name "{{ item.name }}" -ErrorAction SilentlyContinue
+    if (-not $collection) {
+      $schedule = New-CMSchedule -RecurInterval Days -RecurCount 1
+      New-CMDeviceCollection -Name "{{ item.name }}" -LimitingCollectionName "All Systems" -RefreshSchedule $schedule
+      Add-CMDeviceCollectionQueryMembershipRule -CollectionName "{{ item.name }}" `
+        -QueryExpression "{{ item.query }}" -RuleName "{{ item.name }} Query"
+    }
+  loop: "{{ sccm_collections }}"
+  tags: [sccm, collections]

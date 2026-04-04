@@ -1,0 +1,20 @@
+auths:
+  public_v2:
+    community: {{ vault_snmp_community }}
+    version: 2
+  bma_v3:
+    security_level: authPriv
+    username: snmpmon
+    password: {{ vault_snmp_v3_auth }}
+    priv_password: {{ vault_snmp_v3_priv }}
+    auth_protocol: SHA
+    priv_protocol: AES
+
+modules:
+  if_mib:
+    walk:
+      - ifTable
+      - ifXTable
+    auth:
+      community: {{ vault_snmp_community }}
+    version: 2

@@ -1,0 +1,12 @@
+---
+- name: Restart ADWS
+  ansible.windows.win_service:
+    name: ADWS
+    state: restarted
+  listen: restart adws
+
+- name: Restart DHCP Server
+  ansible.windows.win_service:
+    name: DHCPServer
+    state: restarted
+  listen: restart dhcp

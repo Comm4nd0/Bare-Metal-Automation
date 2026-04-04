@@ -1,0 +1,42 @@
+global:
+  scrape_interval: 60s
+  evaluation_interval: 60s
+  external_labels:
+    site: '{{ ansible_hostname }}'
+
+rule_files:
+  - "/etc/prometheus/rules/*.yml"
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: ['localhost:9093']
+
+scrape_configs:
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:{{ prometheus_port }}']
+
+  - job_name: 'windows_exporter'
+    static_configs:
+      - targets:
+{% for host in groups['windows_vms'] %}
+        - '{{ hostvars[host]['ansible_host'] }}:9182'
+{% endfor %}
+
+  - job_name: 'snmp_network_devices'
+    static_configs:
+      - targets:
+{% for host in groups['network_devices'] | default([]) %}
+        - '{{ hostvars[host]['ansible_host'] }}'
+{% endfor %}
+    metrics_path: /snmp
+    params:
+      module: [if_mib]
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: 'localhost:9116'

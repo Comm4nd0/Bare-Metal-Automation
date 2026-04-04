@@ -1,0 +1,198 @@
+---
+# Phase 9: VM Software Deployment Playbook
+# Orchestrates all VM software deployment in dependency order.
+# 8-step sequence matching the BMA Phase 9 design.
+#
+# Usage:
+#   ansible-playbook playbooks/phase9_software.yml -i inventory/site.yml
+#   ansible-playbook playbooks/phase9_software.yml -i inventory/site.yml --tags step1
+#   ansible-playbook playbooks/phase9_software.yml -i inventory/site.yml --check
+
+- name: "Phase 9 — Step 1: Domain Controller + DNS"
+  hosts: domain_controllers
+  gather_facts: true
+  become: true
+  serial: 1
+  tags: [phase9, step1, dc]
+  roles:
+    - role: domain-controller
+    - role: dns-server
+
+- name: "Phase 9 — Step 1b: Secondary DNS"
+  hosts: dns_servers
+  gather_facts: true
+  become: true
+  tags: [phase9, step1, dns]
+  roles:
+    - role: dns-server
+
+# ── Step 2: Core Infrastructure ────────────────────────────────────────────
+- name: "Phase 9 — Step 2a: Certificate Authority"
+  hosts: ca_servers
+  gather_facts: true
+  become: true
+  tags: [phase9, step2, ca]
+  roles:
+    - role: common
+    - role: certificate-authority
+
+- name: "Phase 9 — Step 2b: WSUS"
+  hosts: wsus_servers
+  gather_facts: true
+  become: true
+  tags: [phase9, step2, wsus]
+  roles:
+    - role: common
+    - role: wsus
+
+- name: "Phase 9 — Step 2c: Log Collector (ELK)"
+  hosts: log_servers
+  gather_facts: true
+  become: true
+  tags: [phase9, step2, logcollector]
+  roles:
+    - role: log-collector
+
+# ── Step 3: Management Infrastructure ────────────────────────────────────
+- name: "Phase 9 — Step 3a: NPS/RADIUS"
+  hosts: nps_servers
+  gather_facts: true
+  become: true
+  tags: [phase9, step3, nps]
+  roles:
+    - role: common
+    - role: nps-radius
+
+- name: "Phase 9 — Step 3b: Monitoring Server"
+  hosts: monitoring_servers
+  gather_facts: true
+  become: true
+  tags: [phase9, step3, monitoring]
+  roles:
+    - role: monitoring-server
+
+- name: "Phase 9 — Step 3c: SCCM Site Server"
+  hosts: sccm_servers
+  gather_facts: true
+  become: true
+  tags: [phase9, step3, sccm]
+  roles:
+    - role: common
+    - role: sccm
+
+- name: "Phase 9 — Step 3d: Bastion / Jump Host"
+  hosts: bastion_hosts
+  gather_facts: true
+  become: true
+  tags: [phase9, step3, bastion]
+  roles:
+    - role: common
+    - role: bastion
+
+# ── Step 4: File & Database ───────────────────────────────────────────────
+- name: "Phase 9 — Step 4a: File Server"
+  hosts: file_servers
+  gather_facts: true
+  become: true
+  tags: [phase9, step4, fileserver]
+  roles:
+    - role: common
+    - role: file-server
+
+- name: "Phase 9 — Step 4b: Database Server"
+  hosts: db_servers
+  gather_facts: true
+  become: true
+  tags: [phase9, step4, database]
+  roles:
+    - role: common
+    - role: database-server
+
+- name: "Phase 9 — Step 4c: Print Server"
+  hosts: print_servers
+  gather_facts: true
+  become: true
+  tags: [phase9, step4, print]
+  roles:
+    - role: common
+    - role: print-server
+
+- name: "Phase 9 — Step 4d: Backup Server"
+  hosts: backup_servers
+  gather_facts: true
+  become: true
+  tags: [phase9, step4, backup]
+  roles:
+    - role: common
+    - role: backup-server
+
+# ── Step 5: Application Servers ───────────────────────────────────────────
+- name: "Phase 9 — Step 5: Application Servers (Mission-1, VLAN 1110)"
+  hosts: app_servers_mission1
+  gather_facts: true
+  become: true
+  tags: [phase9, step5, app, mission1]
+  vars:
+    nsx_segment_vlan: 1110
+  roles:
+    - role: common
+    - role: application-server
+
+- name: "Phase 9 — Step 5: Application Servers (Mission-2, VLAN 1210)"
+  hosts: app_servers_mission2
+  gather_facts: true
+  become: true
+  tags: [phase9, step5, app, mission2]
+  vars:
+    nsx_segment_vlan: 1210
+  roles:
+    - role: common
+    - role: application-server
+
+- name: "Phase 9 — Step 5: Application Servers (Mission-3, VLAN 1310)"
+  hosts: app_servers_mission3
+  gather_facts: true
+  become: true
+  tags: [phase9, step5, app, mission3]
+  vars:
+    nsx_segment_vlan: 1310
+  roles:
+    - role: common
+    - role: application-server
+
+- name: "Phase 9 — Step 5: Application Servers (Mission-4, VLAN 1410)"
+  hosts: app_servers_mission4
+  gather_facts: true
+  become: true
+  tags: [phase9, step5, app, mission4]
+  vars:
+    nsx_segment_vlan: 1410
+  roles:
+    - role: common
+    - role: application-server
+
+# ── Step 6: Security ───────────────────────────────────────────────────────
+- name: "Phase 9 — Step 6: Security (EDR, Defender, SIEM)"
+  hosts: all_windows_vms
+  gather_facts: true
+  become: true
+  tags: [phase9, step6, security]
+  roles:
+    - role: security
+
+# ── Step 7: Network Device Management ─────────────────────────────────────
+- name: "Phase 9 — Step 7: Network Device Management"
+  hosts: network_devices
+  gather_facts: false
+  tags: [phase9, step7, netmgmt]
+  roles:
+    - role: network-device-mgmt
+
+# ── Step 8: Physical Servers — domain join and agent install ───────────────
+- name: "Phase 9 — Step 8: Physical Server Domain Join"
+  hosts: physical_servers
+  gather_facts: true
+  become: true
+  tags: [phase9, step8, physical]
+  roles:
+    - role: common

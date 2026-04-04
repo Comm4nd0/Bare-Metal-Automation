@@ -1,0 +1,11 @@
+---
+- name: Restart Windows Defender
+  ansible.windows.win_shell: |
+    Restart-Service WinDefend -Force
+  listen: restart defender
+
+- name: Restart EDR agent
+  ansible.windows.win_service:
+    name: EDRAgent
+    state: restarted
+  listen: restart edr
