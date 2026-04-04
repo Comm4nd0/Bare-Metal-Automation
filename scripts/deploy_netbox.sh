@@ -428,17 +428,23 @@ if [[ "$SKIP_SEED" == false ]]; then
 
     docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" \
         exec -T netbox /opt/netbox/venv/bin/python /opt/netbox/netbox/manage.py shell -c "
-from dcim.models import DeviceRole, Manufacturer, DeviceType
+from dcim.models import DeviceRole, Manufacturer, DeviceType, Platform
 from extras.models import CustomField
 from django.contrib.contenttypes.models import ContentType
 
 # ── Manufacturers ──
-manufacturers = ['Cisco', 'HPE', 'Meinberg']
-for name in manufacturers:
+manufacturers = {
+    'Cisco':    'cisco',
+    'HPE':      'hpe',
+    'Meinberg': 'meinberg',
+}
+mfr_objs = {}
+for name, slug in manufacturers.items():
     obj, created = Manufacturer.objects.get_or_create(
-        name=name,
-        defaults={'slug': name.lower()},
+        slug=slug,
+        defaults={'name': name},
     )
+    mfr_objs[slug] = obj
     status = 'created' if created else 'exists'
     print(f'  Manufacturer: {name} ({status})')
 
@@ -447,10 +453,12 @@ roles = {
     'core-switch':          {'color': '2196f3'},
     'distribution-switch':  {'color': '4caf50'},
     'access-switch':        {'color': '8bc34a'},
-    'wan-router':           {'color': 'ff9800'},
+    'border-router':        {'color': 'ff9800'},
     'distribution-router':  {'color': 'ffc107'},
     'perimeter-firewall':   {'color': 'f44336'},
-    'compute-server':       {'color': '9c27b0'},
+    'compute-node':         {'color': '9c27b0'},
+    'backup-server':        {'color': '795548'},
+    'management-server':    {'color': '673ab7'},
     'ntp-server':           {'color': '607d8b'},
 }
 for slug, attrs in roles.items():
@@ -461,6 +469,69 @@ for slug, attrs in roles.items():
     )
     status = 'created' if created else 'exists'
     print(f'  Device Role: {name} ({status})')
+
+# ── Platforms (maps to BMA platform identifiers) ──
+platforms = {
+    'cisco-ios':    {'name': 'Cisco IOS',         'manufacturer': 'cisco',    'napalm_driver': 'ios'},
+    'cisco-iosxe':  {'name': 'Cisco IOS-XE',      'manufacturer': 'cisco',    'napalm_driver': 'ios'},
+    'cisco-nxos':   {'name': 'Cisco NX-OS',        'manufacturer': 'cisco',    'napalm_driver': 'nxos'},
+    'cisco-ftd':    {'name': 'Cisco FTD',          'manufacturer': 'cisco',    'napalm_driver': ''},
+    'hpe-ilo':      {'name': 'HPE iLO',            'manufacturer': 'hpe',      'napalm_driver': ''},
+    'meinberg-ntp': {'name': 'Meinberg LANTIME',   'manufacturer': 'meinberg', 'napalm_driver': ''},
+}
+for slug, attrs in platforms.items():
+    mfr = mfr_objs.get(attrs['manufacturer'])
+    defaults = {'name': attrs['name']}
+    if mfr:
+        defaults['manufacturer'] = mfr
+    if attrs['napalm_driver']:
+        defaults['napalm_driver'] = attrs['napalm_driver']
+    obj, created = Platform.objects.get_or_create(slug=slug, defaults=defaults)
+    status = 'created' if created else 'exists'
+    print(f'  Platform: {attrs[\"name\"]} ({status})')
+
+# ── Device Types ──
+# (model_slug, full_name, manufacturer_slug, u_height, is_full_depth)
+device_types = [
+    # Cisco switches
+    ('c9500-48y4c',   'Catalyst 9500-48Y4C',   'cisco',    1, True),
+    ('c9500-24y4c',   'Catalyst 9500-24Y4C',   'cisco',    1, True),
+    ('c9300-48p',     'Catalyst 9300-48P',      'cisco',    1, True),
+    ('c9300-24p',     'Catalyst 9300-24P',      'cisco',    1, True),
+    ('c9200-48p',     'Catalyst 9200-48P',      'cisco',    1, True),
+    ('c9200-24p',     'Catalyst 9200-24P',      'cisco',    1, True),
+    # Cisco routers
+    ('isr4331',       'ISR 4331',               'cisco',    1, True),
+    ('isr4351',       'ISR 4351',               'cisco',    2, True),
+    # Cisco firewalls
+    ('fp1150',        'Firepower 1150',         'cisco',    1, True),
+    ('fp2110',        'Firepower 2110',         'cisco',    1, True),
+    # HPE servers
+    ('dl360-gen10',       'ProLiant DL360 Gen10',      'hpe', 1, True),
+    ('dl360-gen10-plus',  'ProLiant DL360 Gen10 Plus', 'hpe', 1, True),
+    ('dl380-gen10',       'ProLiant DL380 Gen10',      'hpe', 2, True),
+    ('dl380-gen10-plus',  'ProLiant DL380 Gen10 Plus', 'hpe', 2, True),
+    ('dl325-gen10',       'ProLiant DL325 Gen10',      'hpe', 1, True),
+    # Meinberg NTP
+    ('m300',          'LANTIME M300',           'meinberg', 1, True),
+    ('m320',          'LANTIME M320',           'meinberg', 1, True),
+]
+for slug, full_name, mfr_slug, u_height, full_depth in device_types:
+    mfr = mfr_objs.get(mfr_slug)
+    if mfr is None:
+        print(f'  Device Type: {full_name} SKIPPED (manufacturer not found)')
+        continue
+    obj, created = DeviceType.objects.get_or_create(
+        slug=slug,
+        manufacturer=mfr,
+        defaults={
+            'model': full_name,
+            'u_height': u_height,
+            'is_full_depth': full_depth,
+        },
+    )
+    status = 'created' if created else 'exists'
+    print(f'  Device Type: {full_name} ({status})')
 
 # ── Custom Fields (BMA-specific) ──
 device_ct = ContentType.objects.get_for_model(
@@ -485,7 +556,22 @@ custom_fields = {
     'bma_last_deployed': {
         'type': 'text',
         'label': 'BMA Last Deployed',
-        'description': 'Timestamp of last successful BMA deployment',
+        'description': 'ISO-8601 timestamp of last successful BMA deployment',
+    },
+    'bma_platform': {
+        'type': 'text',
+        'label': 'BMA Platform',
+        'description': 'BMA platform identifier (e.g. cisco_iosxe, hpe_ilo)',
+    },
+    'bma_bfs_depth': {
+        'type': 'integer',
+        'label': 'BMA BFS Depth',
+        'description': 'BFS topology depth (0 = directly connected to management laptop)',
+    },
+    'bma_reset_certificate': {
+        'type': 'text',
+        'label': 'BMA Reset Certificate ID',
+        'description': 'UUID of the most recent factory reset sanitisation certificate',
     },
 }
 for name, attrs in custom_fields.items():

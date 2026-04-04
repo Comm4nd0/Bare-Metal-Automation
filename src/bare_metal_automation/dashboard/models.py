@@ -1,12 +1,44 @@
-"""Django models for Bare Metal Automation deployment status tracking."""
+"""Django models for Bare Metal Automation deployment status tracking.
 
+Consolidated from two separate apps (Sprint 5):
+  - src/bare_metal_automation/dashboard/  (primary — this file)
+  - dashboard/  at repo root (legacy — see dashboard/README.md)
+
+Unique models from the legacy app (DeploymentPhase, FactoryReset, ResetPhase,
+DeviceResetCertificate, and fleet models) have been merged here.  The legacy
+app's Deployment/Device counterparts map to the primary Deployment/Device.
+"""
+
+from django.contrib.auth.models import User
 from django.db import models
+from django.utils import timezone
 
 
 class Deployment(models.Model):
     """A deployment run tracking overall state."""
 
     name = models.CharField(max_length=200)
+
+    # Site / template metadata (merged from legacy deploy app)
+    site_name = models.CharField(max_length=200, blank=True)
+    site_slug = models.SlugField(max_length=100, blank=True)
+    template_name = models.CharField(max_length=200, blank=True)
+    template_version = models.CharField(max_length=50, blank=True)
+    bundle_path = models.CharField(max_length=500, blank=True)
+    manifest_hash = models.CharField(max_length=64, blank=True, help_text="SHA-256 of manifest.yaml")
+
+    # JSON configuration used by Phase 7/8 (vCenter + NSX parameters)
+    site_config = models.JSONField(default=dict, blank=True)
+
+    # Operator who triggered the deployment
+    operator = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="deployments",
+    )
+
     phase = models.CharField(
         max_length=30,
         choices=[
@@ -433,3 +465,300 @@ class DeploymentLog(models.Model):
             "WARNING": "warning",
             "ERROR": "danger",
         }.get(self.level, "secondary")
+
+
+# ── Deployment phase tracking (merged from legacy deploy app) ──────────────
+
+class PhaseStatus(models.TextChoices):
+    PENDING = "pending", "Pending"
+    RUNNING = "running", "Running"
+    COMPLETED = "completed", "Completed"
+    WARNING = "warning", "Warning"
+    FAILED = "failed", "Failed"
+    SKIPPED = "skipped", "Skipped"
+
+
+class DeploymentPhase(models.Model):
+    """Structured tracking record for a single numbered deployment phase."""
+
+    deployment = models.ForeignKey(
+        Deployment, on_delete=models.CASCADE, related_name="phases"
+    )
+    phase_number = models.IntegerField()
+    phase_name = models.CharField(max_length=100)
+
+    status = models.CharField(
+        max_length=20,
+        choices=PhaseStatus.choices,
+        default=PhaseStatus.PENDING,
+        db_index=True,
+    )
+
+    started_at = models.DateTimeField(null=True, blank=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+    duration_seconds = models.FloatField(null=True, blank=True)
+
+    warning_count = models.IntegerField(default=0)
+    error_message = models.TextField(blank=True)
+
+    class Meta:
+        ordering = ["phase_number"]
+        unique_together = [("deployment", "phase_number")]
+
+    def __str__(self) -> str:
+        return f"Phase {self.phase_number}: {self.phase_name} [{self.status}]"
+
+    @property
+    def traffic_light(self) -> str:
+        return {
+            PhaseStatus.PENDING: "grey",
+            PhaseStatus.RUNNING: "blue",
+            PhaseStatus.COMPLETED: "green",
+            PhaseStatus.WARNING: "amber",
+            PhaseStatus.FAILED: "red",
+            PhaseStatus.SKIPPED: "grey",
+        }.get(self.status, "grey")
+
+    def start(self) -> None:
+        self.status = PhaseStatus.RUNNING
+        self.started_at = timezone.now()
+        self.save(update_fields=["status", "started_at"])
+
+    def complete(self, warning_count: int = 0) -> None:
+        now = timezone.now()
+        self.status = PhaseStatus.WARNING if warning_count else PhaseStatus.COMPLETED
+        self.completed_at = now
+        self.warning_count = warning_count
+        if self.started_at:
+            self.duration_seconds = (now - self.started_at).total_seconds()
+        self.save(update_fields=["status", "completed_at", "duration_seconds", "warning_count"])
+
+    def fail(self, error_message: str = "") -> None:
+        now = timezone.now()
+        self.status = PhaseStatus.FAILED
+        self.completed_at = now
+        self.error_message = error_message
+        if self.started_at:
+            self.duration_seconds = (now - self.started_at).total_seconds()
+        self.save(update_fields=["status", "completed_at", "duration_seconds", "error_message"])
+
+
+# ── Factory reset models (merged from legacy deploy app) ──────────────────
+
+class ResetStatus(models.TextChoices):
+    RUNNING = "running", "Running"
+    COMPLETED = "completed", "Completed"
+    FAILED = "failed", "Failed"
+    ABORTED = "aborted", "Aborted"
+
+
+class FactoryReset(models.Model):
+    """A factory-reset run against a deployment's devices."""
+
+    deployment = models.ForeignKey(
+        Deployment, on_delete=models.CASCADE, related_name="factory_resets"
+    )
+    started_at = models.DateTimeField(auto_now_add=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+
+    status = models.CharField(
+        max_length=20,
+        choices=ResetStatus.choices,
+        default=ResetStatus.RUNNING,
+        db_index=True,
+    )
+    operator = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="factory_resets",
+    )
+    sanitisation_method = models.CharField(max_length=100, default="write-erase")
+    report = models.JSONField(default=dict, blank=True)
+
+    class Meta:
+        ordering = ["-started_at"]
+
+    def __str__(self) -> str:
+        return f"FactoryReset #{self.pk} for {self.deployment} [{self.status}]"
+
+    @property
+    def duration_seconds(self) -> float | None:
+        if self.completed_at:
+            return (self.completed_at - self.started_at).total_seconds()
+        return None
+
+
+class ResetPhase(models.Model):
+    """One of the factory-reset phases (mirrors the 6-phase orchestrator)."""
+
+    RESET_PHASE_NAMES = {
+        1: "VM Teardown",
+        2: "NSX Teardown",
+        3: "vCenter Teardown",
+        4: "Server Wipe",
+        5: "Network Reset",
+        6: "Validation",
+    }
+
+    reset = models.ForeignKey(FactoryReset, on_delete=models.CASCADE, related_name="phases")
+    phase_number = models.IntegerField()
+    phase_name = models.CharField(max_length=100)
+
+    status = models.CharField(
+        max_length=20, choices=PhaseStatus.choices, default=PhaseStatus.PENDING
+    )
+    started_at = models.DateTimeField(null=True, blank=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+
+    devices_reset = models.IntegerField(default=0)
+    devices_total = models.IntegerField(default=0)
+    log_output = models.TextField(blank=True)
+
+    class Meta:
+        ordering = ["phase_number"]
+        unique_together = [("reset", "phase_number")]
+
+    def __str__(self) -> str:
+        return f"ResetPhase {self.phase_number}: {self.phase_name} [{self.status}]"
+
+
+class DeviceResetCertificate(models.Model):
+    """Sanitisation certificate issued per device at end of factory reset."""
+
+    reset = models.ForeignKey(
+        FactoryReset, on_delete=models.CASCADE, related_name="certificates"
+    )
+    device = models.ForeignKey(
+        Device,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="reset_certificates",
+    )
+    serial_number = models.CharField(max_length=100)
+    sanitisation_method = models.CharField(max_length=100)
+    verified = models.BooleanField(default=False)
+    timestamp = models.DateTimeField(auto_now_add=True)
+    operator = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="issued_certificates",
+    )
+    certificate_id = models.CharField(max_length=36, blank=True, help_text="UUID from SanitisationCertificate")
+    checksum = models.CharField(max_length=64, blank=True, help_text="SHA-256 of certificate payload")
+    notes = models.TextField(blank=True)
+
+    class Meta:
+        ordering = ["-timestamp"]
+
+    def __str__(self) -> str:
+        status = "verified" if self.verified else "unverified"
+        return f"Certificate {self.serial_number} ({status})"
+
+
+# ── Fleet compliance models (merged from legacy fleet app) ────────────────
+
+class SiteRecord(models.Model):
+    """A known site in the fleet inventory."""
+
+    site_name = models.CharField(max_length=200)
+    site_slug = models.SlugField(max_length=100, unique=True)
+    location = models.CharField(max_length=200, blank=True)
+    contact = models.EmailField(blank=True)
+
+    last_deployment = models.ForeignKey(
+        Deployment,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="fleet_site",
+    )
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["site_name"]
+
+    def __str__(self) -> str:
+        return self.site_name
+
+
+class TemplateRecord(models.Model):
+    """A versioned site template tracked for fleet compliance."""
+
+    name = models.CharField(max_length=200)
+    current_version = models.CharField(max_length=50)
+    previous_versions = models.JSONField(default=list, blank=True)
+    changelog = models.TextField(blank=True)
+    released_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["name"]
+        unique_together = [("name", "current_version")]
+
+    def __str__(self) -> str:
+        return f"{self.name} v{self.current_version}"
+
+
+class FleetScan(models.Model):
+    """Result of a full fleet compliance scan."""
+
+    scanned_at = models.DateTimeField(auto_now_add=True)
+    site_count = models.IntegerField(default=0)
+    compliant_count = models.IntegerField(default=0)
+    outdated_count = models.IntegerField(default=0)
+    unknown_count = models.IntegerField(default=0)
+    scan_report = models.JSONField(default=dict, blank=True)
+
+    class Meta:
+        ordering = ["-scanned_at"]
+
+    def __str__(self) -> str:
+        return (
+            f"FleetScan {self.scanned_at:%Y-%m-%d %H:%M} "
+            f"— {self.compliant_count}/{self.site_count} compliant"
+        )
+
+    @property
+    def compliance_pct(self) -> int:
+        if not self.site_count:
+            return 0
+        return int(self.compliant_count / self.site_count * 100)
+
+
+class SiteComplianceRecord(models.Model):
+    """Per-site compliance result within a fleet scan."""
+
+    class ComplianceStatus(models.TextChoices):
+        COMPLIANT = "compliant", "Compliant"
+        OUTDATED = "outdated", "Outdated"
+        UNKNOWN = "unknown", "Unknown"
+        NEVER_DEPLOYED = "never_deployed", "Never Deployed"
+
+    scan = models.ForeignKey(FleetScan, on_delete=models.CASCADE, related_name="site_results")
+    site = models.ForeignKey(SiteRecord, on_delete=models.CASCADE, related_name="compliance_records")
+    template_name = models.CharField(max_length=200)
+    deployed_version = models.CharField(max_length=50, blank=True)
+    current_version = models.CharField(max_length=50, blank=True)
+    status = models.CharField(
+        max_length=20,
+        choices=ComplianceStatus.choices,
+        default=ComplianceStatus.UNKNOWN,
+        db_index=True,
+    )
+    deployed_at = models.DateTimeField(null=True, blank=True)
+    drift_details = models.JSONField(default=dict, blank=True)
+
+    class Meta:
+        ordering = ["site__site_name"]
+        unique_together = [("scan", "site")]
+
+    def __str__(self) -> str:
+        return f"{self.site} — {self.status}"

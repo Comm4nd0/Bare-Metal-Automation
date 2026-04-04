@@ -195,16 +195,96 @@ class FactoryResetOrchestrator:
         )
 
         all_ok = True
+        success_map: dict[str, bool] = {}
         for device in servers:
             key = device.serial or device.ip
             hostname = device.intended_hostname or device.ip
-            if results.get(key):
+            ok = bool(results.get(key))
+            success_map[key] = ok
+            if ok:
                 logger.info(f"Server wiped: {hostname}")
             else:
                 logger.error(f"Server wipe FAILED: {hostname}")
                 all_ok = False
 
+        # Generate per-device sanitisation certificates
+        self._generate_reset_certificates(
+            devices=servers,
+            method="redfish-bios-reset",
+            results=success_map,
+            deployment_name=getattr(self.inventory, "deployment_name", "unknown"),
+        )
+
         return all_ok
+
+    # ── Phase 4 (continued): Certificate generation ────────────────────────
+
+    def _generate_reset_certificates(
+        self,
+        devices: list,
+        method: str,
+        results: dict[str, bool],
+        deployment_name: str,
+    ) -> None:
+        """Generate SanitisationCertificates and persist them as
+        DeviceResetCertificate DB records (if Django is available).
+
+        Falls back to file-only certificates if Django ORM is not set up.
+        """
+        from bare_metal_automation.factory_reset.certificate import CertificateGenerator
+
+        generator = CertificateGenerator(
+            deployment_name=deployment_name,
+            output_dir="sanitisation-certs",
+        )
+
+        for device in devices:
+            serial = device.serial or device.ip
+            success = results.get(serial, False)
+            cert = generator.generate(device, method=method, success=success)
+            generator.save(cert)
+            generator.save_text(cert)
+
+            # Persist to Django DeviceResetCertificate if ORM is available
+            try:
+                self._save_certificate_to_db(cert, device)
+            except Exception as e:
+                logger.debug(f"Could not save certificate to DB: {e}")
+
+    def _save_certificate_to_db(self, cert, device) -> None:
+        """Create a DeviceResetCertificate record in the primary dashboard DB."""
+        import django
+        from django.conf import settings as django_settings
+
+        if not django_settings.configured:
+            return
+
+        # Import here to avoid circular dependency at module level
+        from bare_metal_automation.dashboard.models import (  # noqa: PLC0415
+            DeviceResetCertificate,
+            Device as DashboardDevice,
+        )
+
+        # Attempt to find a matching Device by serial or IP
+        db_device = None
+        if device.serial:
+            db_device = DashboardDevice.objects.filter(serial=device.serial).first()
+        if db_device is None and device.ip:
+            db_device = DashboardDevice.objects.filter(ip=device.ip).first()
+
+        DeviceResetCertificate.objects.create(
+            device=db_device,
+            serial_number=cert.device_serial,
+            sanitisation_method=cert.method,
+            verified=cert.success,
+            certificate_id=cert.certificate_id,
+            checksum=cert.checksum,
+            notes=cert.notes,
+        )
+        logger.info(
+            f"DeviceResetCertificate created for {cert.device_serial} "
+            f"(success={cert.success})"
+        )
 
     # ── Phase 5: Network reset ─────────────────────────────────────────────
 
@@ -247,14 +327,25 @@ class FactoryResetOrchestrator:
         )
 
         all_ok = True
+        success_map: dict[str, bool] = {}
         for device in network_devices:
             key = device.serial or device.ip
             hostname = device.intended_hostname or device.ip
-            if results.get(key):
+            ok = bool(results.get(key))
+            success_map[key] = ok
+            if ok:
                 logger.info(f"Network device reset: {hostname}")
             elif key in results:
                 logger.error(f"Network reset FAILED: {hostname}")
                 all_ok = False
+
+        # Generate per-device sanitisation certificates
+        self._generate_reset_certificates(
+            devices=network_devices,
+            method="cisco-write-erase",
+            results=success_map,
+            deployment_name=getattr(self.inventory, "deployment_name", "unknown"),
+        )
 
         return all_ok
 

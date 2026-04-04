@@ -73,6 +73,67 @@ Bare Metal Automation is a zero-touch provisioning tool for bare-metal infrastru
 - `deploy_vms` resolves inventory from bundle_path if `--inventory` not specified; logs per-event ansible-runner callbacks
 - Phase 9 playbook respects sub-step tags so individual steps can be re-run without full re-deployment
 
+### Session — Phase 7/8, Dashboard Consolidation, Discovery & Reset Gaps
+
+**Date**: 2026-04-04
+**Branch**: `luma/upbeat-gagarin`
+
+**What was done**:
+
+#### Phase 7 — vCenter Deployment (`src/bare_metal_automation/vinfra/vcenter/`)
+- `deploy.py` — `VCSADeployer`: generates JSON template, runs `vcsa-deploy install --accept-eula --no-ssl-certificate-verification`, polls vCenter HTTPS until ready. `VCSAConfig` dataclass captures all deployment parameters.
+- `cluster.py` — `ClusterManager` (pyvmomi): create/find datacenter, create cluster with HA/DRS disabled (enabled later), add ESXi hosts via `AddHost` task.
+- `vds.py` — `VDSManager` (pyvmomi): create vDS, add hosts, create port groups for all standard VLANs (100/200/400/500/600/700/800/950) plus per-mission tenant VLANs (1100+N*100, 1110+N*100, 1120+N*100).
+- `storage.py` — `StorageManager`: configure vSAN (claim eligible SSDs/capacity disks into disk groups) or enumerate local datastores.
+- `ha_drs.py` — `HADRSManager`: enable HA (percentage admission control, VM monitoring), DRS (fully automated), configure vMotion VMkernel adapters per host.
+- `content_library.py` — `ContentLibraryManager` (vSphere REST API): create local content library on a datastore, upload OVA/ISO templates via streaming PUT.
+
+#### Phase 8 — NSX-T Configuration (`src/bare_metal_automation/vinfra/nsx/`)
+- `manager.py` — `NSXManagerDeployer`: deploy NSX Manager OVA via ovftool, wait for UI readiness, register with vCenter via Policy API compute-manager endpoint.
+- `transport.py` — `TransportManager`: create overlay + VLAN transport zones, TEP IP pool, uplink profile; apply host transport node profile to vSphere cluster.
+- `edge.py` — `EdgeManager`: deploy Edge VMs (Policy API), wait for configuration_state=SUCCESS, create edge cluster.
+- `routing.py` — `RoutingManager`: create Tier-0 (uplink to firewall, locale service, optional interface), per-tenant Tier-1 gateways linked to T0.
+- `segments.py` — `SegmentManager`: create `mgmt-servers`, `mgmt-infra` + `mN-users`, `mN-apps`, `mN-data` segments connected to appropriate T1 gateways.
+- `firewall.py` — `FirewallManager`: DFW policies for shared-services ALLOW, intra-mission ALLOW, cross-mission DROP (logged), mission→management DROP (logged), management→any ALLOW.
+
+#### Django management commands (primary dashboard)
+- `deploy_vcenter` — 6-step pipeline (vcsa_deploy → cluster → vds → storage → ha_drs → content_library). Resumes from `--start-at-step`, supports `--dry-run`. Updates Deployment.phase and sends WebSocket events via `events.py`.
+- `configure_vnet` — 8-step pipeline (manager → transport → host_tnp → edge → tier0 → tier1 → segments → firewall). `--skip-manager-deploy` skips OVA deploy. Reads site config JSON from file or Deployment.site_config.
+
+#### Dashboard consolidation
+- Primary `Deployment` model extended with: `site_name`, `site_slug`, `template_name`, `template_version`, `bundle_path`, `manifest_hash`, `site_config` (JSON), `operator` FK.
+- New models in primary dashboard: `DeploymentPhase`, `PhaseStatus`, `ResetStatus`, `FactoryReset`, `ResetPhase`, `DeviceResetCertificate` (with `certificate_id` + `checksum` from SanitisationCertificate).
+- Fleet models added to primary: `SiteRecord`, `TemplateRecord`, `FleetScan`, `SiteComplianceRecord`.
+- Migration `0005_consolidation.py` created.
+- Legacy `dashboard/deploy/management/commands/{deploy_vcenter,configure_vnet}.py` replaced with deprecation shims that forward to primary commands.
+- `dashboard/README.md` added documenting the deprecation and model mapping table.
+
+#### Discovery — LLDP parsing (`src/bare_metal_automation/discovery/cdp.py`)
+- Added `parse_lldp_output()` — parses `show lldp neighbors detail` for IOS-XE and NX-OS. Extracts local port, system name/chassis ID, remote port, system description, management IP.
+- Added `LLDPCollector` — SSH + LLDP collection with configurable `device_type` for Netmiko.
+- Added `NeighbourCollector` — tries CDP first, then LLDP, merges deduplicated results (keyed by `(local_port, remote_device_id)`).
+
+#### Factory reset certificates (`src/bare_metal_automation/factory_reset/reset.py`)
+- `_generate_reset_certificates()` — called after `phase_server_wipe` (method: `redfish-bios-reset`) and `phase_network_reset` (method: `cisco-write-erase`).
+- Uses `CertificateGenerator` to write JSON + TXT cert files.
+- `_save_certificate_to_db()` — creates `DeviceResetCertificate` DB record if Django ORM is available (no-ops gracefully otherwise), linking to the matching `Device` by serial.
+
+#### NetBox seeding (`scripts/deploy_netbox.sh`)
+- Added `Platform` objects for all BMA platforms: cisco-ios, cisco-iosxe, cisco-nxos, cisco-ftd, hpe-ilo, meinberg-ntp (with NAPALM driver where applicable).
+- Added 17 `DeviceType` entries: Catalyst 9500/9300/9200, ISR 4331/4351, Firepower 1150/2110, ProLiant DL360/DL380/DL325 Gen10/Gen10 Plus, LANTIME M300/M320.
+- Expanded custom fields: added `bma_platform`, `bma_bfs_depth`, `bma_reset_certificate`.
+- Added `backup-server` and `management-server` device roles.
+- `pyvmomi>=8.0,<9` added to `requirements.txt` and `pyproject.toml`.
+
+**Key decisions**:
+- NSX uses Policy API exclusively (not deprecated MP API) — `/policy/api/v1/` for all resources.
+- pyvmomi imported lazily inside methods (not at module top) so the package remains importable without pyvmomi installed.
+- `_save_certificate_to_db()` is best-effort: certificate files on disk are always written; DB record creation is optional so the reset works in non-Django contexts.
+- LLDP + CDP results are merged by `(local_port, remote_device_id)` key — CDP preferred as it carries serial numbers.
+- vDS port group naming: `PG-<vlan_name>` for standard VLANs, `PG-m{N}-<type>` for mission VLANs (e.g. `PG-m1-users`).
+- NSX DFW policies are sequenced: shared-services (100) → intra-mission (200) → cross-mission (300) → mission→mgmt (400) → mgmt→any (500) — higher sequence = lower priority.
+- Legacy dashboard management commands emit deprecation warnings and forward to primary commands via site_slug lookup.
+
 ### Session — Review & Fix deploy_netbox.sh for NetBox 4.x Compatibility
 
 **Date**: 2026-04-02
@@ -695,10 +756,11 @@ Implemented the full BMA Engine Sprint 4, filling in module stubs and adding new
 - **Milestone 2 (Cabling Validation)**: ~~Intent parser~~, ~~cabling diff engine~~, ~~adaptation engine~~, ~~report generator~~
 - **Milestone 3 (Network Config)**: ~~Config renderer~~, ~~dead man's switch~~, ~~post-config validator~~, ~~router templates~~, Ansible playbooks, rollback handler
 - **Milestone 4 (Server Provisioning)**: ~~Redfish client~~, ~~iLO operations~~, ~~firmware update~~, ~~BIOS config~~, ~~virtual media~~, ~~OS installer~~, ~~PXE fallback~~, ~~server config templates (iLO + BIOS)~~
-- **Milestone 5 (Dashboard)**: ~~WebSocket events (server-side)~~, D3.js topology renderer (frontend JS), log viewer enhancements, ~~deploy button~~, ~~simulation mode~~, **dashboard authentication** (critical, not yet implemented)
-- **Milestone 6 (Hardening)**: Serial console fallback, retry logic, ~~state persistence~~, multi-NIC, LLDP, config drift detection
+- **Milestone 5 (Dashboard)**: ~~WebSocket events (server-side)~~, D3.js topology renderer (frontend JS), log viewer enhancements, ~~deploy button~~, ~~simulation mode~~
+- **Milestone 6 (Hardening)**: Serial console fallback, retry logic, ~~state persistence~~, multi-NIC, ~~LLDP~~, config drift detection
 - **CI/CD**: ~~GitHub Actions workflow~~, ~~pre-commit hooks~~, ~~Makefile~~, ~~Dockerfile + docker-compose~~
-- **VMware sprint**: vCenter teardown, NSX teardown, VM teardown (guarded with `NotImplementedError` in `factory_reset/reset.py`)
+- **VMware / NSX (Phase 7/8)**: ~~vCenter deployment (deploy.py, cluster.py, vds.py, storage.py, ha_drs.py, content_library.py)~~, ~~NSX-T configuration (manager, transport, edge, routing, segments, firewall)~~, ~~management commands (deploy_vcenter, configure_vnet)~~, ~~factory reset VMware phases (still NotImplementedError — requires live vCenter)~~
+- **Dashboard consolidation**: ~~Unique legacy models ported~~, ~~migration 0005~~, ~~legacy shims~~, ~~deprecation README~~, data migration script (site-specific, not provided)
 - **Integration tests**: End-to-end pipeline tests with mock hardware
 - **Security**: ~~XSS fixes~~, ~~CSRF protection for UI endpoints~~, ~~API input validation~~, dashboard authentication, API rate limiting
 
