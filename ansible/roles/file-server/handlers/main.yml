@@ -1,0 +1,12 @@
+---
+- name: Restart DFS
+  ansible.windows.win_service:
+    name: Dfs
+    state: restarted
+  listen: restart dfs
+
+- name: Restart DFS Replication
+  ansible.windows.win_service:
+    name: DFSR
+    state: restarted
+  listen: restart dfsr

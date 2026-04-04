@@ -1,0 +1,27 @@
+---
+domain_name: "corp.local"
+dfs_namespace_name: "Corp"
+dfs_namespace_type: "DomainV2"
+shared_folders:
+  - name: "Software"
+    path: "D:\\Shares\\Software"
+    dfs_path: "Software"
+    acl:
+      - identity: "Domain Admins"
+        rights: FullControl
+      - identity: "Domain Users"
+        rights: ReadAndExecute
+  - name: "Profiles"
+    path: "D:\\Shares\\Profiles"
+    dfs_path: "Profiles"
+    acl:
+      - identity: "Domain Users"
+        rights: Modify
+  - name: "HomeDir"
+    path: "D:\\Shares\\HomeDir"
+    dfs_path: "HomeDir"
+    acl:
+      - identity: "Domain Users"
+        rights: Modify
+quota_limit_gb: 10
+user_home_drive_letter: "H"

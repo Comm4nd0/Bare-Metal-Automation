@@ -1,0 +1,32 @@
+---
+# Global variables for all hosts
+domain_name: "corp.local"
+domain_netbios: "CORP"
+ansible_winrm_transport: kerberos
+ansible_winrm_server_cert_validation: ignore
+ansible_port: 5985
+
+# NTP
+ntp_servers:
+  - "ntp01.corp.local"
+  - "pool.ntp.org"
+
+# Monitoring
+monitoring_server: "mon01.corp.local"
+prometheus_port: 9090
+grafana_port: 3000
+
+# Log collection
+log_collector_host: "log01.corp.local"
+log_collector_port: 5044
+
+# Vault-sourced secrets (loaded via ansible-vault)
+# vault_dsrm_password: (in vault)
+# vault_mssql_sa_password: (in vault)
+# vault_grafana_admin_password: (in vault)
+# vault_snmp_community: (in vault)
+# vault_snmp_v3_auth: (in vault)
+# vault_snmp_v3_priv: (in vault)
+# vault_tacacs_key: (in vault)
+# vault_radius_key: (in vault)
+# vault_edr_agent_key: (in vault)

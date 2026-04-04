@@ -1,0 +1,13 @@
+---
+elasticsearch_version: "8.13.0"
+logstash_version: "8.13.0"
+kibana_version: "8.13.0"
+elk_data_dir: "/var/lib/elasticsearch"
+elk_log_dir: "/var/log/elasticsearch"
+logstash_syslog_port: 514
+logstash_beats_port: 5044
+logstash_winlog_port: 5045
+retention_days: 90
+elasticsearch_heap_size: "4g"
+kibana_port: 5601
+domain_name: "corp.local"

@@ -1,0 +1,6 @@
+---
+- name: Restart WSUS Service
+  ansible.windows.win_service:
+    name: WsusService
+    state: restarted
+  listen: restart wsus

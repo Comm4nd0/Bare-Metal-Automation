@@ -1,0 +1,64 @@
+---
+# NPS/RADIUS — Network Policy Server for 802.1X
+
+- name: Install NPS role
+  ansible.windows.win_feature:
+    name:
+      - NPAS
+      - NPAS-Policy-Server
+      - NPAS-Health
+      - RSAT-NPAS
+    state: present
+    include_management_tools: true
+  register: nps_feature
+  tags: [nps, install]
+
+- name: Reboot if required
+  ansible.windows.win_reboot:
+    reboot_timeout: 600
+  when: nps_feature.reboot_required
+  tags: [nps, install]
+
+- name: Register NPS with Active Directory
+  ansible.windows.win_shell: |
+    netsh nps add registeredserver domain="{{ domain_name }}" server="{{ inventory_hostname }}.{{ domain_name }}"
+  tags: [nps, configure]
+
+- name: Create 802.1X security group
+  microsoft.ad.group:
+    name: "{{ dot1x_user_group }}"
+    scope: global
+    path: "OU=Groups,DC={{ domain_name.split('.') | join(',DC=') }}"
+    state: present
+  tags: [nps, configure]
+
+- name: Add RADIUS clients (distribution switches)
+  ansible.windows.win_shell: |
+    $client = Get-NpsRadiusClient -Name "{{ item.name }}" -ErrorAction SilentlyContinue
+    if (-not $client) {
+      New-NpsRadiusClient -Address "{{ item.ip }}" -Name "{{ item.name }}" `
+        -SharedSecret "{{ item.shared_secret }}" -Enabled $true -VendorName "Cisco"
+    }
+  loop: "{{ radius_clients }}"
+  no_log: true
+  notify: restart nps
+  tags: [nps, radius_clients]
+
+- name: Create 802.1X network policy
+  ansible.windows.win_shell: |
+    $policyName = "802.1X Wired Authentication"
+    $existing = Get-NpsNetworkPolicy -Name $policyName -ErrorAction SilentlyContinue
+    if (-not $existing) {
+      New-NpsNetworkPolicy -Name $policyName `
+        -ProcessingOrder 10 `
+        -PolicySource "Active Directory" `
+        -ConditionString "RADIUS Client IP Address Matches Regex .*" `
+        -AuthMethod "PEAP" `
+        -AccessType "ACCESS_ACCEPT"
+    }
+  tags: [nps, policies]
+
+- name: Configure NPS logging
+  ansible.windows.win_shell: |
+    netsh nps set accounting logtype=LOGLOCAL logfileformat=DTS logfile="C:\Windows\System32\LogFiles\NPS"
+  tags: [nps, logging]

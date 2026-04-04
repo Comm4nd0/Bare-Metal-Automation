@@ -1,0 +1,15 @@
+---
+domain_name: "corp.local"
+radius_clients:
+  - name: "core-sw01"
+    ip: "10.0.1.2"
+    shared_secret: "{{ vault_radius_secret_core_sw01 }}"
+  - name: "dist-sw01"
+    ip: "10.0.2.2"
+    shared_secret: "{{ vault_radius_secret_dist_sw01 }}"
+  - name: "dist-sw02"
+    ip: "10.0.2.3"
+    shared_secret: "{{ vault_radius_secret_dist_sw02 }}"
+dot1x_vlan_auth: 100
+dot1x_vlan_reject: 999
+dot1x_user_group: "802.1X-Users"

@@ -1,0 +1,11 @@
+---
+# Host vars for DC01
+ansible_host: "10.0.0.10"
+ansible_user: "Administrator"
+vm_role: "domain_controller"
+
+# DC-specific overrides
+dhcp_scope_start: "10.0.0.100"
+dhcp_scope_end: "10.0.0.200"
+dhcp_scope_router: "10.0.0.1"
+dhcp_scope_dns: "10.0.0.10"

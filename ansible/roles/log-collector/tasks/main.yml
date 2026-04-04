@@ -1,0 +1,134 @@
+---
+# Log Collector — ELK Stack (Elasticsearch, Logstash, Kibana)
+
+- name: Install Java (Elasticsearch dependency)
+  ansible.builtin.apt:
+    name: openjdk-17-jdk-headless
+    state: present
+    update_cache: true
+  become: true
+  tags: [logcollector, install]
+
+- name: Import Elastic GPG key
+  ansible.builtin.apt_key:
+    url: https://artifacts.elastic.co/GPG-KEY-elasticsearch
+    state: present
+  become: true
+  tags: [logcollector, install]
+
+- name: Add Elastic APT repository
+  ansible.builtin.apt_repository:
+    repo: "deb https://artifacts.elastic.co/packages/8.x/apt stable main"
+    state: present
+    filename: elastic-8.x
+  become: true
+  tags: [logcollector, install]
+
+- name: Install ELK stack
+  ansible.builtin.apt:
+    name:
+      - "elasticsearch={{ elasticsearch_version }}"
+      - "logstash={{ logstash_version }}"
+      - "kibana={{ kibana_version }}"
+    state: present
+    update_cache: true
+  become: true
+  tags: [logcollector, install]
+
+- name: Configure Elasticsearch
+  ansible.builtin.template:
+    src: elasticsearch.yml.j2
+    dest: /etc/elasticsearch/elasticsearch.yml
+    owner: elasticsearch
+    group: elasticsearch
+    mode: "0660"
+  notify: restart elasticsearch
+  become: true
+  tags: [logcollector, configure]
+
+- name: Set Elasticsearch JVM heap
+  ansible.builtin.lineinfile:
+    path: /etc/elasticsearch/jvm.options
+    regexp: "^-Xms"
+    line: "-Xms{{ elasticsearch_heap_size }}"
+  notify: restart elasticsearch
+  become: true
+  tags: [logcollector, configure]
+
+- name: Set Elasticsearch JVM heap max
+  ansible.builtin.lineinfile:
+    path: /etc/elasticsearch/jvm.options
+    regexp: "^-Xmx"
+    line: "-Xmx{{ elasticsearch_heap_size }}"
+  notify: restart elasticsearch
+  become: true
+  tags: [logcollector, configure]
+
+- name: Enable and start Elasticsearch
+  ansible.builtin.systemd:
+    name: elasticsearch
+    enabled: true
+    state: started
+    daemon_reload: true
+  become: true
+  tags: [logcollector, install]
+
+- name: Deploy Logstash pipeline configuration
+  ansible.builtin.template:
+    src: logstash_bma.conf.j2
+    dest: /etc/logstash/conf.d/bma.conf
+    owner: logstash
+    group: logstash
+    mode: "0640"
+  notify: restart logstash
+  become: true
+  tags: [logcollector, configure]
+
+- name: Enable and start Logstash
+  ansible.builtin.systemd:
+    name: logstash
+    enabled: true
+    state: started
+  become: true
+  tags: [logcollector, install]
+
+- name: Configure Kibana
+  ansible.builtin.template:
+    src: kibana.yml.j2
+    dest: /etc/kibana/kibana.yml
+    owner: kibana
+    group: kibana
+    mode: "0660"
+  notify: restart kibana
+  become: true
+  tags: [logcollector, kibana]
+
+- name: Enable and start Kibana
+  ansible.builtin.systemd:
+    name: kibana
+    enabled: true
+    state: started
+  become: true
+  tags: [logcollector, kibana]
+
+- name: Configure ILM retention policy
+  ansible.builtin.uri:
+    url: "http://localhost:9200/_ilm/policy/bma_retention"
+    method: PUT
+    body_format: json
+    body:
+      policy:
+        phases:
+          hot:
+            actions:
+              rollover:
+                max_age: "7d"
+                max_size: "10gb"
+          delete:
+            min_age: "{{ retention_days }}d"
+            actions:
+              delete: {}
+    status_code: [200, 201]
+  retries: 5
+  delay: 10
+  tags: [logcollector, retention]

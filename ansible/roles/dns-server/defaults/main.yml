@@ -1,0 +1,16 @@
+---
+domain_name: "corp.local"
+dns_forwarders:
+  - "8.8.8.8"
+  - "8.8.4.4"
+reverse_zones:
+  - network: "10.0.0.0/24"
+    zone: "0.0.10.in-addr.arpa"
+  - network: "10.0.1.0/24"
+    zone: "1.0.10.in-addr.arpa"
+static_records: []
+# Example:
+# - name: "gateway"
+#   type: "A"
+#   zone: "corp.local"
+#   value: "10.0.0.1"

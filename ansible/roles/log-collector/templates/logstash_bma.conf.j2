@@ -1,0 +1,41 @@
+input {
+  syslog {
+    port => {{ logstash_syslog_port }}
+    type => "syslog"
+  }
+  beats {
+    port => {{ logstash_beats_port }}
+    type => "winlogbeat"
+  }
+  tcp {
+    port => {{ logstash_winlog_port }}
+    codec => json_lines
+    type => "windows_event"
+  }
+}
+
+filter {
+  if [type] == "syslog" {
+    grok {
+      match => { "message" => "%{SYSLOGTIMESTAMP:syslog_timestamp} %{SYSLOGHOST:syslog_hostname} %{DATA:syslog_program}(?:\[%{POSINT:syslog_pid}\])?: %{GREEDYDATA:syslog_message}" }
+    }
+    mutate {
+      add_field => { "site" => "{{ ansible_hostname }}" }
+    }
+  }
+  if [type] == "winlogbeat" {
+    mutate {
+      add_field => { "log_source" => "windows" }
+    }
+  }
+}
+
+output {
+  elasticsearch {
+    hosts => ["localhost:9200"]
+    index => "bma-%{type}-%{+YYYY.MM.dd}"
+    ilm_enabled => true
+    ilm_rollover_alias => "bma-%{type}"
+    ilm_policy => "bma_retention"
+  }
+}

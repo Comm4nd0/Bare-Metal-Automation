@@ -1,0 +1,98 @@
+---
+# File Server — DFS namespaces, shared folders, quotas, home drives
+
+- name: Install File Server roles
+  ansible.windows.win_feature:
+    name:
+      - FS-FileServer
+      - FS-DFS-Namespace
+      - FS-DFS-Replication
+      - FS-Resource-Manager
+      - RSAT-DFS-Mgmt-Con
+      - RSAT-File-Services
+    state: present
+    include_management_tools: true
+  register: fs_feature
+  tags: [fileserver, install]
+
+- name: Reboot if required
+  ansible.windows.win_reboot:
+    reboot_timeout: 600
+  when: fs_feature.reboot_required
+  tags: [fileserver, install]
+
+- name: Create share directories
+  ansible.windows.win_file:
+    path: "{{ item.path }}"
+    state: directory
+  loop: "{{ shared_folders }}"
+  tags: [fileserver, shares]
+
+- name: Create SMB shares
+  ansible.windows.win_share:
+    name: "{{ item.name }}"
+    path: "{{ item.path }}"
+    state: present
+    full: "Domain Admins"
+    change: "Domain Users"
+  loop: "{{ shared_folders }}"
+  tags: [fileserver, shares]
+
+- name: Set NTFS ACLs on shared folders
+  ansible.windows.win_acl:
+    path: "{{ item.0.path }}"
+    user: "{{ item.1.identity }}"
+    rights: "{{ item.1.rights }}"
+    type: allow
+    state: present
+    inherit: ContainerInherit, ObjectInherit
+    propagation: None
+  loop: "{{ shared_folders | subelements('acl') }}"
+  tags: [fileserver, acl]
+
+- name: Create DFS namespace
+  ansible.windows.win_shell: |
+    $ns = "\\\\{{ domain_name }}\\{{ dfs_namespace_name }}"
+    $existing = Get-DfsnRoot -Path $ns -ErrorAction SilentlyContinue
+    if (-not $existing) {
+      New-DfsnRoot -Path $ns -Type {{ dfs_namespace_type }} -TargetPath "\\\\{{ inventory_hostname }}\\{{ dfs_namespace_name }}"
+    }
+  notify: restart dfs
+  tags: [fileserver, dfs]
+
+- name: Create DFS namespace folders
+  ansible.windows.win_shell: |
+    $folderPath = "\\\\{{ domain_name }}\\{{ dfs_namespace_name }}\\{{ item.dfs_path }}"
+    $existing = Get-DfsnFolder -Path $folderPath -ErrorAction SilentlyContinue
+    if (-not $existing) {
+      New-DfsnFolder -Path $folderPath -TargetPath "\\\\{{ inventory_hostname }}\\{{ item.name }}"
+    }
+  loop: "{{ shared_folders }}"
+  tags: [fileserver, dfs]
+
+- name: Configure FSRM quota template
+  ansible.windows.win_shell: |
+    $template = Get-FsrmQuotaTemplate -Name "BMA {{ quota_limit_gb }}GB Limit" -ErrorAction SilentlyContinue
+    if (-not $template) {
+      New-FsrmQuotaTemplate -Name "BMA {{ quota_limit_gb }}GB Limit" -Size ({{ quota_limit_gb }}GB) -SoftLimit $false
+    }
+  tags: [fileserver, quotas]
+
+- name: Apply quota to home directory share
+  ansible.windows.win_shell: |
+    $quotaPath = "D:\\Shares\\HomeDir"
+    $existing = Get-FsrmQuota -Path $quotaPath -ErrorAction SilentlyContinue
+    if (-not $existing) {
+      New-FsrmQuota -Path $quotaPath -Template "BMA {{ quota_limit_gb }}GB Limit"
+    }
+  tags: [fileserver, quotas]
+
+- name: Configure home drive mapping GPO
+  ansible.windows.win_shell: |
+    Import-Module GroupPolicy
+    $gpoName = "BMA - Home Drive Mapping"
+    if (-not (Get-GPO -Name $gpoName -ErrorAction SilentlyContinue)) {
+      $gpo = New-GPO -Name $gpoName
+      New-GPLink -Name $gpoName -Target "DC={{ domain_name.split('.') | join(',DC=') }}"
+    }
+  tags: [fileserver, gpo]

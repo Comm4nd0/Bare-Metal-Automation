@@ -1,0 +1,6 @@
+---
+- name: Restart SMS Executive
+  ansible.windows.win_service:
+    name: SMS_EXECUTIVE
+    state: restarted
+  listen: restart sms_exec

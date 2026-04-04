@@ -1,0 +1,17 @@
+USE msdb;
+GO
+EXEC sp_add_job @job_name = N'BMA Full Database Backup';
+EXEC sp_add_jobstep
+    @job_name = N'BMA Full Database Backup',
+    @step_name = N'Full Backup All User DBs',
+    @command = N'EXEC master.dbo.xp_sqlmaint N''-BkUpDB {{ mssql_backup_dir }} -BkExt BAK''';
+EXEC sp_add_schedule
+    @schedule_name = N'BMA Daily Backup',
+    @freq_type = 4,
+    @freq_interval = 1,
+    @active_start_time = 020000;
+EXEC sp_attach_schedule
+    @job_name = N'BMA Full Database Backup',
+    @schedule_name = N'BMA Daily Backup';
+EXEC sp_add_jobserver @job_name = N'BMA Full Database Backup';
+GO

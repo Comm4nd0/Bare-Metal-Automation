@@ -1,0 +1,57 @@
+---
+# Application Server — generic per-app configuration with multi-tenant NSX support
+
+- name: Create application directories
+  ansible.windows.win_file:
+    path: "{{ item }}"
+    state: directory
+  loop:
+    - "{{ app_install_dir }}"
+    - "{{ app_log_dir }}"
+  tags: [app, prepare]
+
+- name: Configure Windows Firewall rule for app port
+  ansible.windows.win_firewall_rule:
+    name: "Allow {{ app_name }} port {{ app_port }}"
+    localport: "{{ app_port }}"
+    action: allow
+    direction: in
+    protocol: tcp
+    state: present
+    enabled: true
+  tags: [app, firewall]
+
+- name: Deploy application from file share
+  ansible.windows.win_shell: |
+    $source = "{{ app_source_path }}"
+    $dest = "{{ app_install_dir }}"
+    if (Test-Path $source) {
+      Copy-Item -Path "$source\*" -Destination $dest -Recurse -Force
+    }
+  args:
+    creates: "{{ app_install_dir }}\\app.exe"
+  tags: [app, install]
+
+- name: Deploy application config file
+  ansible.windows.win_template:
+    src: app_config.xml.j2
+    dest: "{{ app_install_dir }}\\config.xml"
+  notify: restart app
+  tags: [app, configure]
+
+- name: Install application as Windows service
+  ansible.windows.win_service:
+    name: "{{ app_service_name }}"
+    path: "{{ app_install_dir }}\\app.exe"
+    start_mode: auto
+    state: started
+    username: "{{ app_service_account }}"
+    password: "{{ vault_svc_app_password }}"
+  tags: [app, service]
+
+- name: Configure log forwarding (Windows Event Log to logstash)
+  ansible.windows.win_template:
+    src: winlogbeat.yml.j2
+    dest: "C:\\Program Files\\winlogbeat\\winlogbeat.yml"
+  notify: restart app
+  tags: [app, logging]

@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<configuration>
+  <appSettings>
+    <add key="AppName" value="{{ app_name }}" />
+    <add key="DatabaseServer" value="{{ app_db_server }}" />
+    <add key="DatabaseName" value="{{ app_db_name }}" />
+    <add key="ListenPort" value="{{ app_port }}" />
+    <add key="LogDirectory" value="{{ app_log_dir }}" />
+    <add key="NSXSegmentVlan" value="{{ nsx_segment_vlan }}" />
+  </appSettings>
+  <connectionStrings>
+    <add name="AppDB"
+         connectionString="Data Source={{ app_db_server }};Initial Catalog={{ app_db_name }};Integrated Security=True;"
+         providerName="System.Data.SqlClient" />
+  </connectionStrings>
+</configuration>

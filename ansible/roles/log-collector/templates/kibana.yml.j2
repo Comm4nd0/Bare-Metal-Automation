@@ -1,0 +1,7 @@
+server.port: {{ kibana_port }}
+server.host: "0.0.0.0"
+server.name: "log01.{{ domain_name }}"
+elasticsearch.hosts: ["http://localhost:9200"]
+kibana.index: ".kibana"
+logging.appenders.file.type: file
+logging.appenders.file.fileName: /var/log/kibana/kibana.log

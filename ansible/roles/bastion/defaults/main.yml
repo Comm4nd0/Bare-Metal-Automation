@@ -1,0 +1,12 @@
+---
+domain_name: "corp.local"
+domain_netbios: "CORP"
+rdp_gateway_port: 443
+rdp_gateway_ssl_cert: "{{ domain_netbios }}\\jump01"
+mfa_enabled: true
+allowed_admin_groups:
+  - "Domain Admins"
+  - "BMA-Operators"
+audit_log_path: "C:\\AuditLogs\\RDP"
+session_timeout_minutes: 60
+idle_timeout_minutes: 15

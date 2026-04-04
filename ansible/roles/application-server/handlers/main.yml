@@ -1,0 +1,6 @@
+---
+- name: Restart application service
+  ansible.windows.win_service:
+    name: "{{ app_service_name }}"
+    state: restarted
+  listen: restart app

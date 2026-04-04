@@ -1,0 +1,35 @@
+groups:
+  - name: bma_infrastructure
+    rules:
+      - alert: HostDown
+        expr: up == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Host {{ $labels.instance }} is down"
+          description: "Prometheus target {{ $labels.instance }} has been down for more than 2 minutes."
+
+      - alert: HighCPUUsage
+        expr: 100 - (avg by (instance) (rate(windows_cpu_time_total{mode="idle"}[5m])) * 100) > 90
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High CPU on {{ $labels.instance }}"
+
+      - alert: LowDiskSpace
+        expr: (windows_logical_disk_free_bytes / windows_logical_disk_size_bytes) * 100 < 10
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Low disk space on {{ $labels.instance }}"
+
+      - alert: ServiceDown
+        expr: windows_service_state{state="running"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Service {{ $labels.name }} down on {{ $labels.instance }}"

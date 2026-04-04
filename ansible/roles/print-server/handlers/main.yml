@@ -1,0 +1,6 @@
+---
+- name: Restart Print Spooler
+  ansible.windows.win_service:
+    name: Spooler
+    state: restarted
+  listen: restart spooler

@@ -1,0 +1,18 @@
+---
+domain_name: "corp.local"
+sccm_site_code: "BMA"
+sccm_site_name: "BMA Primary Site"
+sccm_sql_server: "db01.{{ domain_name }}"
+sccm_sql_instance: "MSSQLSERVER"
+sccm_install_dir: "C:\\Program Files\\Microsoft Configuration Manager"
+sccm_content_dir: "D:\\SCCMContent"
+sccm_service_account: "{{ domain_netbios }}\\svc_sccm"
+sccm_boundary_name: "BMA Site Boundary"
+sccm_boundary_ip_range_start: "10.0.0.0"
+sccm_boundary_ip_range_end: "10.255.255.255"
+sccm_collections:
+  - name: "All Windows Servers"
+    query: "select * from SMS_R_System where SMS_R_System.OperatingSystemNameandVersion like '%Server%'"
+  - name: "All Workstations"
+    query: "select * from SMS_R_System where SMS_R_System.OperatingSystemNameandVersion like '%Workstation%'"
+domain_netbios: "CORP"

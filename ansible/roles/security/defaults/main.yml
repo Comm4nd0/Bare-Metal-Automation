@@ -1,0 +1,10 @@
+---
+domain_name: "corp.local"
+edr_agent_installer: "\\\\file01.{{ domain_name }}\\software\\edr\\edr_agent_setup.exe"
+edr_policy_server: "edr-mgmt.{{ domain_name }}"
+edr_agent_key: "{{ vault_edr_agent_key }}"
+siem_forwarder_host: "log01.{{ domain_name }}"
+siem_forwarder_port: 514
+vulnerability_scanner_ip: "10.0.0.50"
+defender_cloud_protection: true
+defender_realtime_protection: true
