@@ -32,6 +32,7 @@ dependencies = [
     "pydantic>=2.5,<3",
     "pyserial>=3.5,<4",
     "pynetbox>=7.3,<8",
+    "pyvmomi>=8.0,<9",
     "tabulate>=0.9,<1",
     "semver>=3.0,<4",
 ]
