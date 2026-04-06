@@ -1002,3 +1002,42 @@ src/bare_metal_automation/
 - `src/bare_metal_automation/dashboard/deployment.py` — added debug logging
 - `src/bare_metal_automation/dashboard/rollback.py` — added debug logging
 - `docs/ROADMAP.md` — updated completion status, fixed Flask→Django, added known gaps
+
+---
+
+### Session — 2026-04-07
+**Branch**: `main`
+**Commits**: `45f79ba`, plus README update commit
+
+**What was done**:
+- **NetBox 4.x compatibility fixes** for the site orchestration pipeline:
+  - Cable colors: added name-to-hex mapping (`_CABLE_COLOR_MAP`) — NetBox 4.x requires 6-char hex codes, not color names
+  - Prefix scoping: replaced deprecated `site` field with `scope_type`/`scope_id` for NetBox 4.x prefix API
+  - Cluster members: replaced non-existent `virtualization.cluster_members` endpoint with `dcim.devices.filter(cluster_id=)`
+  - Cable validation: fixed validator to handle pynetbox Record objects (not just plain dicts)
+  - Site octet: added `site_octet` custom field to persist the actual octet used during generation; validator reads it instead of always falling back to template default
+- **Rack unit collision fix**: medium-site template had overlapping rack positions for distribution switches and compute nodes; respaced to avoid conflicts
+- **deploy_netbox.sh fix**: replaced `sed` with Python for API token substitution — tokens containing `/` or `|` were breaking sed delimiters
+- **`--destroy` / `--yes` flags** added to `bma-orchestrate` for deleting sites and all dependent objects (cables → IPs → interfaces → devices → prefixes → VLANs → VLAN groups → racks → clusters → site)
+- **README.md fully rewritten** with:
+  - Complete CLI reference for all 6 entry points and their flags
+  - Site template documentation (small/medium/large with device counts)
+  - NetBox deployment instructions
+  - vInfra (Pillar 4) module documentation (vCenter + NSX-T)
+  - Ansible roles table (Pillar 5) — 17 roles
+  - Updated project structure tree
+  - Deployment phases table
+
+**Key decisions**:
+- NetBox 4.x removed `site` field from prefixes in favour of generic `scope_type`/`scope_id` — all prefix creation and querying updated
+- Destroy command deletes prefixes both by scope and by VLAN association to catch all cases
+- Each site requires a unique `--octet` for IP addressing (`10.{octet}.x.x`) — duplicate octets cause prefix conflicts
+
+**Files modified**:
+- `orchestrator/orchestrate.py` — added `destroy_site()`, `--destroy`/`--yes` args
+- `orchestrator/site_generate.py` — cable color mapping, prefix scope fix, site_octet custom field
+- `orchestrator/site_regenerate.py` — cable color import, prefix scope fix
+- `orchestrator/validators.py` — octet from custom field, prefix scope query, cable termination handling, cluster members fix
+- `scripts/deploy_netbox.sh` — Python-based token substitution
+- `site_templates/medium-site.yaml` — rack unit positions fixed
+- `README.md` — full rewrite
