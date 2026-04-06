@@ -124,7 +124,7 @@ class NodeValidator:
         cabling_path = SITE_TEMPLATES_DIR / "cabling" / f"{cabling_name}.yaml"
         cabling = _load_yaml(cabling_path) if cabling_path.exists() else {"cables": []}
 
-        site_octet = template["network"]["default_site_octet"]
+        site_octet = (site.custom_fields or {}).get("site_octet") or template["network"]["default_site_octet"]
 
         logger.info(
             "Validating site '%s' against template '%s' v%s",
@@ -230,10 +230,17 @@ class NodeValidator:
         template: dict[str, Any],
         site_octet: int,
     ) -> None:
-        existing_prefixes: set[str] = {
-            str(p.prefix)
-            for p in self.nb.ipam.prefixes.filter(site_id=site.id)
-        }
+        # NetBox 4.x: prefixes use scope instead of site. Query via scope or
+        # fall back to collecting prefixes linked to VLANs at this site.
+        scope_prefixes = list(self.nb.ipam.prefixes.filter(
+            scope_type="dcim.site", scope_id=site.id,
+        ))
+        if not scope_prefixes:
+            # Fallback: gather prefixes via site VLANs
+            site_vlans = list(self.nb.ipam.vlans.filter(site_id=site.id))
+            for vlan in site_vlans:
+                scope_prefixes.extend(self.nb.ipam.prefixes.filter(vlan_id=vlan.id))
+        existing_prefixes: set[str] = {str(p.prefix) for p in scope_prefixes}
 
         def _rendered(template_str: str) -> str:
             return template_str.replace("{X}", str(site_octet))
@@ -271,10 +278,19 @@ class NodeValidator:
         connected_pairs: set[tuple[str, str]] = set()
         for cable in self.nb.dcim.cables.filter(site_id=site.id):
             for term in (cable.a_terminations or []) + (cable.b_terminations or []):
-                obj = term.get("object") if isinstance(term, dict) else None
+                # Handle both dict and pynetbox Record objects
+                if isinstance(term, dict):
+                    obj = term.get("object")
+                else:
+                    obj = getattr(term, "object", None) or (dict(term) if hasattr(term, "__iter__") else None)
                 if obj:
-                    dev_name = (obj.get("device") or {}).get("name", "")
-                    iface_name = obj.get("name", "")
+                    if isinstance(obj, dict):
+                        dev_name = (obj.get("device") or {}).get("name", "")
+                        iface_name = obj.get("name", "")
+                    else:
+                        dev = getattr(obj, "device", None)
+                        dev_name = getattr(dev, "name", "") if dev else ""
+                        iface_name = getattr(obj, "name", "")
                     if dev_name and iface_name:
                         connected_pairs.add((dev_name, iface_name))
 
@@ -325,9 +341,7 @@ class NodeValidator:
             )
         )
         members = list(
-            self.nb.virtualization.cluster_members.filter(cluster_id=cluster.id)
-            if hasattr(self.nb.virtualization, "cluster_members")
-            else []
+            self.nb.dcim.devices.filter(cluster_id=cluster.id)
         )
         expected_count = len(compute_devices)
         actual_count = len(members)

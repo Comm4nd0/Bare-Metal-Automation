@@ -379,6 +379,18 @@ def _build_parser() -> argparse.ArgumentParser:
         help="IP addressing site octet (overrides template default)",
     )
     p.add_argument(
+        "--destroy",
+        action="store_true",
+        default=False,
+        help="Delete the site and ALL dependent objects (devices, cables, prefixes, VLANs, etc.)",
+    )
+    p.add_argument(
+        "--yes",
+        action="store_true",
+        default=False,
+        help="Skip confirmation prompt (use with --destroy)",
+    )
+    p.add_argument(
         "--output-dir",
         default="./output",
         help="Directory where inventory.yaml and bundle are written",
@@ -401,6 +413,80 @@ def _build_parser() -> argparse.ArgumentParser:
     return p
 
 
+def destroy_site(nb: pynetbox.api, site_slug: str) -> bool:
+    """Delete a site and all dependent objects from NetBox.
+
+    Deletion order respects NetBox foreign-key constraints:
+      cables → IPs → interfaces → devices → prefixes → VLANs → racks → cluster → site
+    """
+    site = nb.dcim.sites.get(slug=site_slug)
+    if site is None:
+        console.print(f"[yellow]Site '{site_slug}' not found — nothing to delete.[/]")
+        return True
+
+    console.print(f"[bold red]Destroying site '{site.name}' (slug={site_slug})…[/]\n")
+    counts: dict[str, int] = {}
+
+    def _delete_all(label: str, items: list) -> None:
+        for obj in items:
+            try:
+                obj.delete()
+            except Exception as exc:
+                console.print(f"  [yellow]⚠ Could not delete {label} {obj}: {exc}[/]")
+        counts[label] = counts.get(label, 0) + len(items)
+
+    # 1. Cables
+    _delete_all("cable", list(nb.dcim.cables.filter(site_id=site.id)))
+
+    # 2. IP addresses (via devices at site)
+    devices = list(nb.dcim.devices.filter(site_id=site.id))
+    for dev in devices:
+        _delete_all("ip-address", list(nb.ipam.ip_addresses.filter(device_id=dev.id)))
+
+    # 3. Interfaces (will be deleted with devices, but clear explicitly for clean ordering)
+    for dev in devices:
+        _delete_all("interface", list(nb.dcim.interfaces.filter(device_id=dev.id)))
+
+    # 4. Devices
+    _delete_all("device", devices)
+
+    # 5. Prefixes (must come before VLANs — prefixes reference VLANs)
+    #    Filter by site_id first, then also catch any linked via VLANs at this site
+    site_prefixes = {p.id: p for p in nb.ipam.prefixes.filter(site_id=site.id)}
+    site_vlans = list(nb.ipam.vlans.filter(site_id=site.id))
+    for vlan in site_vlans:
+        for p in nb.ipam.prefixes.filter(vlan_id=vlan.id):
+            site_prefixes[p.id] = p
+    _delete_all("prefix", list(site_prefixes.values()))
+
+    # 6. VLANs
+    _delete_all("vlan", site_vlans)
+
+    # 7. VLAN groups
+    _delete_all("vlan-group", list(nb.ipam.vlan_groups.filter(site_id=site.id)))
+
+    # 8. Racks
+    _delete_all("rack", list(nb.dcim.racks.filter(site_id=site.id)))
+
+    # 9. Clusters (associated via site)
+    _delete_all("cluster", list(nb.virtualization.clusters.filter(site_id=site.id)))
+
+    # 9. Site
+    try:
+        site.delete()
+        counts["site"] = 1
+    except Exception as exc:
+        console.print(f"  [red]✗ Failed to delete site: {exc}[/]")
+        return False
+
+    console.print()
+    for label, count in counts.items():
+        if count > 0:
+            console.print(f"  [green]✓[/] Deleted {count} {label}(s)")
+    console.print(f"\n[bold green]Site '{site_slug}' destroyed.[/]")
+    return True
+
+
 def main(argv: list[str] | None = None) -> int:
     args = _build_parser().parse_args(argv)
     logging.basicConfig(
@@ -416,6 +502,20 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     nb = pynetbox.api(args.netbox_url.rstrip("/"), token=args.netbox_token)
+
+    # Handle --destroy
+    if args.destroy:
+        if not args.yes:
+            confirm = input(
+                f"⚠  This will permanently delete site '{args.site_slug}' "
+                f"and ALL its objects. Type 'yes' to confirm: "
+            )
+            if confirm.strip().lower() != "yes":
+                console.print("[yellow]Aborted.[/]")
+                return 1
+        success = destroy_site(nb, args.site_slug)
+        return 0 if success else 1
+
     output_dir = Path(args.output_dir)
 
     pipeline = PipelineOrchestrator(

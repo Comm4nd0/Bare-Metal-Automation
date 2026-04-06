@@ -37,6 +37,31 @@ console = Console()
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SITE_TEMPLATES_DIR = REPO_ROOT / "site_templates"
 
+# ── Cable colour name → hex mapping (NetBox requires 6-char hex, no '#') ────────
+_CABLE_COLOR_MAP: dict[str, str] = {
+    "red": "f44336",
+    "blue": "2196f3",
+    "green": "4caf50",
+    "yellow": "ffeb3b",
+    "orange": "ff9800",
+    "gray": "9e9e9e",
+    "grey": "9e9e9e",
+    "black": "111111",
+    "white": "fafafa",
+    "purple": "9c27b0",
+    "pink": "e91e63",
+    "brown": "795548",
+    "cyan": "00bcd4",
+}
+
+
+def _resolve_cable_color(color: str) -> str:
+    """Convert a colour name to a 6-char hex code, or pass through if already hex."""
+    if not color:
+        return ""
+    return _CABLE_COLOR_MAP.get(color.lower(), color)
+
+
 # ── NetBox interface type map (model_slug → default interface type) ────────────
 # Used when creating interfaces that don't already exist.
 _IFACE_TYPE_MAP: dict[str, str] = {
@@ -227,6 +252,14 @@ class SiteGenerator:
                 "required": False,
                 "description": "ISO-8601 timestamp of last template sync",
             },
+            {
+                "name": "site_octet",
+                "label": "Site Octet",
+                "type": "integer",
+                "object_types": ["dcim.site"],
+                "required": False,
+                "description": "IP addressing octet used during site generation (10.{octet}.x.x)",
+            },
         ]
         for field_data in fields:
             _, created = _get_or_create(
@@ -340,6 +373,7 @@ class SiteGenerator:
                 "template_name": self.template_meta["name"],
                 "template_version": self.template_meta["version"],
                 "template_last_synced": datetime.now(timezone.utc).isoformat(),
+                "site_octet": self.site_octet,
             },
         })
         self._bump("sites")
@@ -425,10 +459,11 @@ class SiteGenerator:
             )
             _get_or_create(
                 self.nb.ipam.prefixes,
-                filter_kwargs={"prefix": prefix_str, "site_id": self._site.id},
+                filter_kwargs={"prefix": prefix_str, "vlan_id": vlan.id if vlan else None},
                 create_data={
                     "prefix": prefix_str,
-                    "site": self._site.id,
+                    "scope_type": "dcim.site",
+                    "scope_id": self._site.id,
                     "status": "active",
                     "description": description,
                     **({"vlan": vlan.id} if vlan else {}),
@@ -555,7 +590,7 @@ class SiteGenerator:
                     {"object_type": "dcim.interface", "object_id": b_iface.id}
                 ],
                 "type": cable_spec.get("type", "cat6"),
-                "color": cable_spec.get("color", ""),
+                "color": _resolve_cable_color(cable_spec.get("color", "")),
                 "label": cable_spec.get("description", ""),
                 "status": "planned",
             })

@@ -32,7 +32,7 @@ import yaml
 from rich.console import Console
 from rich.table import Table
 
-from orchestrator.site_generate import SiteGenerator, _get_or_create, _iface_type
+from orchestrator.site_generate import SiteGenerator, _get_or_create, _iface_type, _resolve_cable_color
 
 logger = logging.getLogger(__name__)
 console = Console()
@@ -397,7 +397,8 @@ class SiteRegenerator:
     def _fix_missing_prefix(self, prefix_str: str) -> None:
         self.nb.ipam.prefixes.create({
             "prefix": prefix_str,
-            "site": self._site.id,
+            "scope_type": "dcim.site",
+            "scope_id": self._site.id,
             "status": "active",
         })
 
@@ -426,7 +427,7 @@ class SiteRegenerator:
                             {"object_type": "dcim.interface", "object_id": b_iface.id}
                         ],
                         "type": cable_spec.get("type", "cat6"),
-                        "color": cable_spec.get("color", ""),
+                        "color": _resolve_cable_color(cable_spec.get("color", "")),
                         "label": cable_spec.get("description", ""),
                         "status": "planned",
                     })

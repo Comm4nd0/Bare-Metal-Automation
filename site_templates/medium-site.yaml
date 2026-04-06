@@ -136,7 +136,7 @@ devices:
     manufacturer_slug: hpe
     platform: hpe_ilo
     name_pattern: "esxi-{n:02d}"
-    rack_unit: 12
+    rack_unit: 17
     ha: false
 
   - role: backup-server
@@ -148,7 +148,7 @@ devices:
     manufacturer_slug: hpe
     platform: hpe_ilo
     name_pattern: "svr-backup-{n:02d}"
-    rack_unit: 17
+    rack_unit: 27
     ha: false
 
   - role: ntp-server
@@ -160,7 +160,7 @@ devices:
     manufacturer_slug: meinberg
     platform: meinberg_ntp
     name_pattern: "ntp-{n:02d}"
-    rack_unit: 18
+    rack_unit: 29
     ha: false
 
 # ── Virtualization cluster ────────────────────────────────────────────────────

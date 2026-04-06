@@ -419,7 +419,16 @@ if [[ -z "$API_TOKEN" || "$API_TOKEN" == *"ERROR"* ]]; then
 fi
 
 # Update .env with the API token
-sed -i "s/^SUPERUSER_API_TOKEN=.*/SUPERUSER_API_TOKEN=${API_TOKEN}/" "${ENV_FILE}"
+python3 -c "
+import re, sys
+token = sys.argv[1]
+path = sys.argv[2]
+with open(path) as f:
+    content = f.read()
+content = re.sub(r'^SUPERUSER_API_TOKEN=.*', 'SUPERUSER_API_TOKEN=' + token, content, flags=re.MULTILINE)
+with open(path, 'w') as f:
+    f.write(content)
+" "$API_TOKEN" "$ENV_FILE"
 
 # ── Seed BMA data ──────────────────────────────────────────────────────────
 
